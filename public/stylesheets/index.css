@@ -1,0 +1,216 @@
+/**
+* 功能：首页样式
+ */
+html,body{
+    width: 100%;
+    height: 100%;
+}
+body, ul, li{
+    padding: 0;
+    margin: 0;
+}
+body{
+  padding: 15px;
+}
+a{
+    cursor: pointer;
+}
+ul{
+    list-style: none;
+}
+/*清除浮动*/
+.clearfix:before, .clearfix:after{
+    content: "";
+    display: table;
+}
+.clearfix:after{
+    height: 0;
+    visibility: hidden;
+    clear: both;
+}
+header{
+   /* width: 100%;
+    height: 54px;*/
+}
+main{
+    padding-top: 100px;
+    padding-bottom: 50px;
+    /*height: 100%;*/
+}
+main section{
+    height: 100%;
+}
+main section>div{
+    height: 100%;
+}
+main .main-left{
+    background-color: #f2f2f2;
+    height: 100%;
+    padding: 0;
+}
+main .main-right{
+    background-color: #fff;
+    padding: 50px;
+}
+main ul.ctr{
+
+}
+main ul.ctr li{
+    height: 40px;
+    line-height: 40px;
+    cursor: pointer;
+    text-align: center;
+    text-indent: -21px;
+}
+main ul.ctr li:hover{
+    background-color: #fff;
+}
+.vcode img{
+    background-color: #00b3ee;
+    border-radius: 5px;
+}
+footer{
+    width: 100%;
+    height: 50px;
+    line-height: 50px;
+    background-color: #222;
+    text-align: center;
+    color: #666;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+}
+.dataTables_filter{
+  margin-bottom: 5px;
+  text-align: right;
+}
+.pagination{
+  display: inline-block;
+  text-align: right;
+}
+#bloglist_paginate{
+  text-align: right;
+}
+#user-table_paginate{
+  text-align: right;
+}
+
+
+/*bloglist*/
+main{
+  padding-top: 50px;
+}
+a{
+  text-decoration: none;
+}
+.blog{
+  padding: 20px;
+  margin: 0 auto;
+  padding-top: 66px;
+}
+.bottom, .center, .top{
+  margin-bottom: 20px;
+  padding: 0px 20px;
+}
+.top{
+  margin-top: 10px;
+}
+.bottom{
+  margin-bottom: 5px;
+  font-size: 16px;
+}
+table .center .content{
+
+}
+table .top>div{
+  vertical-align: middle;
+  line-height: 50px;
+  font-size: 20px;
+}
+table .headImg{
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+}
+table .author{
+  color: #fc6c0d;
+}
+table .title{
+  padding-left: 10px;
+  text-decoration: none;
+}
+table .content{
+  color: #000;
+  font-size: 18px;
+  line-height: 30px;
+  text-decoration: none;
+}
+table .label{
+  text-align: left;
+  text-indent: -33px;
+  line-height: 21px;
+  color: #000;
+}
+table .label a{
+  color: #000;
+  text-decoration: none;
+  margin: 0px 5px;
+  font-weight: 400;
+}
+table .com-share{
+  font-size: 16px;
+}
+table .com-share a{
+  margin: 0 5px;
+  text-decoration: none;
+  font-size: 12px;
+  color: #000;
+}
+table .like, table .dislike{
+  text-indent: -14px;
+}
+table .like span, table .dislike span{
+  vertical-align: middle;
+}
+table span.comment{
+  cursor: pointer;
+}
+.userinfo{
+  background: #eee;
+}
+.userinfo .user{
+  margin: 0 auto;
+}
+.userinfo .container{
+  padding: 20px;
+  padding-left: 40px;
+}
+.userinfo .user-img>img{
+  width: 110px;
+  height: 110px;
+}
+.userinfo .row>div{
+  line-height: 50px;
+}
+.userinfo .user-detail{
+  font-size: 18px;
+}
+.userinfo .link>a:first-child{
+  margin-right: 10px;
+}
+.userinfo .link>a:last-child{
+  margin-left: 10px;
+}
+.userinfo .row .write-blog{
+  line-height: 100px;
+}
+.like, .dislike{
+  cursor: pointer;
+}
+
+
+/*登录注册错误提示*/
+#phoneAlert, #pwdAlert,
+#repwdAlert, #vcodeAlert{
+    display: none;
+}
