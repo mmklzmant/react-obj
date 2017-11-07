@@ -24300,6 +24300,469 @@ module.exports = warning;
 
 }).call(this,require('_process'))
 },{"_process":38}],224:[function(require,module,exports){
+(function(self) {
+  'use strict';
+
+  if (self.fetch) {
+    return
+  }
+
+  var support = {
+    searchParams: 'URLSearchParams' in self,
+    iterable: 'Symbol' in self && 'iterator' in Symbol,
+    blob: 'FileReader' in self && 'Blob' in self && (function() {
+      try {
+        new Blob()
+        return true
+      } catch(e) {
+        return false
+      }
+    })(),
+    formData: 'FormData' in self,
+    arrayBuffer: 'ArrayBuffer' in self
+  }
+
+  if (support.arrayBuffer) {
+    var viewClasses = [
+      '[object Int8Array]',
+      '[object Uint8Array]',
+      '[object Uint8ClampedArray]',
+      '[object Int16Array]',
+      '[object Uint16Array]',
+      '[object Int32Array]',
+      '[object Uint32Array]',
+      '[object Float32Array]',
+      '[object Float64Array]'
+    ]
+
+    var isDataView = function(obj) {
+      return obj && DataView.prototype.isPrototypeOf(obj)
+    }
+
+    var isArrayBufferView = ArrayBuffer.isView || function(obj) {
+      return obj && viewClasses.indexOf(Object.prototype.toString.call(obj)) > -1
+    }
+  }
+
+  function normalizeName(name) {
+    if (typeof name !== 'string') {
+      name = String(name)
+    }
+    if (/[^a-z0-9\-#$%&'*+.\^_`|~]/i.test(name)) {
+      throw new TypeError('Invalid character in header field name')
+    }
+    return name.toLowerCase()
+  }
+
+  function normalizeValue(value) {
+    if (typeof value !== 'string') {
+      value = String(value)
+    }
+    return value
+  }
+
+  // Build a destructive iterator for the value list
+  function iteratorFor(items) {
+    var iterator = {
+      next: function() {
+        var value = items.shift()
+        return {done: value === undefined, value: value}
+      }
+    }
+
+    if (support.iterable) {
+      iterator[Symbol.iterator] = function() {
+        return iterator
+      }
+    }
+
+    return iterator
+  }
+
+  function Headers(headers) {
+    this.map = {}
+
+    if (headers instanceof Headers) {
+      headers.forEach(function(value, name) {
+        this.append(name, value)
+      }, this)
+    } else if (Array.isArray(headers)) {
+      headers.forEach(function(header) {
+        this.append(header[0], header[1])
+      }, this)
+    } else if (headers) {
+      Object.getOwnPropertyNames(headers).forEach(function(name) {
+        this.append(name, headers[name])
+      }, this)
+    }
+  }
+
+  Headers.prototype.append = function(name, value) {
+    name = normalizeName(name)
+    value = normalizeValue(value)
+    var oldValue = this.map[name]
+    this.map[name] = oldValue ? oldValue+','+value : value
+  }
+
+  Headers.prototype['delete'] = function(name) {
+    delete this.map[normalizeName(name)]
+  }
+
+  Headers.prototype.get = function(name) {
+    name = normalizeName(name)
+    return this.has(name) ? this.map[name] : null
+  }
+
+  Headers.prototype.has = function(name) {
+    return this.map.hasOwnProperty(normalizeName(name))
+  }
+
+  Headers.prototype.set = function(name, value) {
+    this.map[normalizeName(name)] = normalizeValue(value)
+  }
+
+  Headers.prototype.forEach = function(callback, thisArg) {
+    for (var name in this.map) {
+      if (this.map.hasOwnProperty(name)) {
+        callback.call(thisArg, this.map[name], name, this)
+      }
+    }
+  }
+
+  Headers.prototype.keys = function() {
+    var items = []
+    this.forEach(function(value, name) { items.push(name) })
+    return iteratorFor(items)
+  }
+
+  Headers.prototype.values = function() {
+    var items = []
+    this.forEach(function(value) { items.push(value) })
+    return iteratorFor(items)
+  }
+
+  Headers.prototype.entries = function() {
+    var items = []
+    this.forEach(function(value, name) { items.push([name, value]) })
+    return iteratorFor(items)
+  }
+
+  if (support.iterable) {
+    Headers.prototype[Symbol.iterator] = Headers.prototype.entries
+  }
+
+  function consumed(body) {
+    if (body.bodyUsed) {
+      return Promise.reject(new TypeError('Already read'))
+    }
+    body.bodyUsed = true
+  }
+
+  function fileReaderReady(reader) {
+    return new Promise(function(resolve, reject) {
+      reader.onload = function() {
+        resolve(reader.result)
+      }
+      reader.onerror = function() {
+        reject(reader.error)
+      }
+    })
+  }
+
+  function readBlobAsArrayBuffer(blob) {
+    var reader = new FileReader()
+    var promise = fileReaderReady(reader)
+    reader.readAsArrayBuffer(blob)
+    return promise
+  }
+
+  function readBlobAsText(blob) {
+    var reader = new FileReader()
+    var promise = fileReaderReady(reader)
+    reader.readAsText(blob)
+    return promise
+  }
+
+  function readArrayBufferAsText(buf) {
+    var view = new Uint8Array(buf)
+    var chars = new Array(view.length)
+
+    for (var i = 0; i < view.length; i++) {
+      chars[i] = String.fromCharCode(view[i])
+    }
+    return chars.join('')
+  }
+
+  function bufferClone(buf) {
+    if (buf.slice) {
+      return buf.slice(0)
+    } else {
+      var view = new Uint8Array(buf.byteLength)
+      view.set(new Uint8Array(buf))
+      return view.buffer
+    }
+  }
+
+  function Body() {
+    this.bodyUsed = false
+
+    this._initBody = function(body) {
+      this._bodyInit = body
+      if (!body) {
+        this._bodyText = ''
+      } else if (typeof body === 'string') {
+        this._bodyText = body
+      } else if (support.blob && Blob.prototype.isPrototypeOf(body)) {
+        this._bodyBlob = body
+      } else if (support.formData && FormData.prototype.isPrototypeOf(body)) {
+        this._bodyFormData = body
+      } else if (support.searchParams && URLSearchParams.prototype.isPrototypeOf(body)) {
+        this._bodyText = body.toString()
+      } else if (support.arrayBuffer && support.blob && isDataView(body)) {
+        this._bodyArrayBuffer = bufferClone(body.buffer)
+        // IE 10-11 can't handle a DataView body.
+        this._bodyInit = new Blob([this._bodyArrayBuffer])
+      } else if (support.arrayBuffer && (ArrayBuffer.prototype.isPrototypeOf(body) || isArrayBufferView(body))) {
+        this._bodyArrayBuffer = bufferClone(body)
+      } else {
+        throw new Error('unsupported BodyInit type')
+      }
+
+      if (!this.headers.get('content-type')) {
+        if (typeof body === 'string') {
+          this.headers.set('content-type', 'text/plain;charset=UTF-8')
+        } else if (this._bodyBlob && this._bodyBlob.type) {
+          this.headers.set('content-type', this._bodyBlob.type)
+        } else if (support.searchParams && URLSearchParams.prototype.isPrototypeOf(body)) {
+          this.headers.set('content-type', 'application/x-www-form-urlencoded;charset=UTF-8')
+        }
+      }
+    }
+
+    if (support.blob) {
+      this.blob = function() {
+        var rejected = consumed(this)
+        if (rejected) {
+          return rejected
+        }
+
+        if (this._bodyBlob) {
+          return Promise.resolve(this._bodyBlob)
+        } else if (this._bodyArrayBuffer) {
+          return Promise.resolve(new Blob([this._bodyArrayBuffer]))
+        } else if (this._bodyFormData) {
+          throw new Error('could not read FormData body as blob')
+        } else {
+          return Promise.resolve(new Blob([this._bodyText]))
+        }
+      }
+
+      this.arrayBuffer = function() {
+        if (this._bodyArrayBuffer) {
+          return consumed(this) || Promise.resolve(this._bodyArrayBuffer)
+        } else {
+          return this.blob().then(readBlobAsArrayBuffer)
+        }
+      }
+    }
+
+    this.text = function() {
+      var rejected = consumed(this)
+      if (rejected) {
+        return rejected
+      }
+
+      if (this._bodyBlob) {
+        return readBlobAsText(this._bodyBlob)
+      } else if (this._bodyArrayBuffer) {
+        return Promise.resolve(readArrayBufferAsText(this._bodyArrayBuffer))
+      } else if (this._bodyFormData) {
+        throw new Error('could not read FormData body as text')
+      } else {
+        return Promise.resolve(this._bodyText)
+      }
+    }
+
+    if (support.formData) {
+      this.formData = function() {
+        return this.text().then(decode)
+      }
+    }
+
+    this.json = function() {
+      return this.text().then(JSON.parse)
+    }
+
+    return this
+  }
+
+  // HTTP methods whose capitalization should be normalized
+  var methods = ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT']
+
+  function normalizeMethod(method) {
+    var upcased = method.toUpperCase()
+    return (methods.indexOf(upcased) > -1) ? upcased : method
+  }
+
+  function Request(input, options) {
+    options = options || {}
+    var body = options.body
+
+    if (input instanceof Request) {
+      if (input.bodyUsed) {
+        throw new TypeError('Already read')
+      }
+      this.url = input.url
+      this.credentials = input.credentials
+      if (!options.headers) {
+        this.headers = new Headers(input.headers)
+      }
+      this.method = input.method
+      this.mode = input.mode
+      if (!body && input._bodyInit != null) {
+        body = input._bodyInit
+        input.bodyUsed = true
+      }
+    } else {
+      this.url = String(input)
+    }
+
+    this.credentials = options.credentials || this.credentials || 'omit'
+    if (options.headers || !this.headers) {
+      this.headers = new Headers(options.headers)
+    }
+    this.method = normalizeMethod(options.method || this.method || 'GET')
+    this.mode = options.mode || this.mode || null
+    this.referrer = null
+
+    if ((this.method === 'GET' || this.method === 'HEAD') && body) {
+      throw new TypeError('Body not allowed for GET or HEAD requests')
+    }
+    this._initBody(body)
+  }
+
+  Request.prototype.clone = function() {
+    return new Request(this, { body: this._bodyInit })
+  }
+
+  function decode(body) {
+    var form = new FormData()
+    body.trim().split('&').forEach(function(bytes) {
+      if (bytes) {
+        var split = bytes.split('=')
+        var name = split.shift().replace(/\+/g, ' ')
+        var value = split.join('=').replace(/\+/g, ' ')
+        form.append(decodeURIComponent(name), decodeURIComponent(value))
+      }
+    })
+    return form
+  }
+
+  function parseHeaders(rawHeaders) {
+    var headers = new Headers()
+    rawHeaders.split(/\r?\n/).forEach(function(line) {
+      var parts = line.split(':')
+      var key = parts.shift().trim()
+      if (key) {
+        var value = parts.join(':').trim()
+        headers.append(key, value)
+      }
+    })
+    return headers
+  }
+
+  Body.call(Request.prototype)
+
+  function Response(bodyInit, options) {
+    if (!options) {
+      options = {}
+    }
+
+    this.type = 'default'
+    this.status = 'status' in options ? options.status : 200
+    this.ok = this.status >= 200 && this.status < 300
+    this.statusText = 'statusText' in options ? options.statusText : 'OK'
+    this.headers = new Headers(options.headers)
+    this.url = options.url || ''
+    this._initBody(bodyInit)
+  }
+
+  Body.call(Response.prototype)
+
+  Response.prototype.clone = function() {
+    return new Response(this._bodyInit, {
+      status: this.status,
+      statusText: this.statusText,
+      headers: new Headers(this.headers),
+      url: this.url
+    })
+  }
+
+  Response.error = function() {
+    var response = new Response(null, {status: 0, statusText: ''})
+    response.type = 'error'
+    return response
+  }
+
+  var redirectStatuses = [301, 302, 303, 307, 308]
+
+  Response.redirect = function(url, status) {
+    if (redirectStatuses.indexOf(status) === -1) {
+      throw new RangeError('Invalid status code')
+    }
+
+    return new Response(null, {status: status, headers: {location: url}})
+  }
+
+  self.Headers = Headers
+  self.Request = Request
+  self.Response = Response
+
+  self.fetch = function(input, init) {
+    return new Promise(function(resolve, reject) {
+      var request = new Request(input, init)
+      var xhr = new XMLHttpRequest()
+
+      xhr.onload = function() {
+        var options = {
+          status: xhr.status,
+          statusText: xhr.statusText,
+          headers: parseHeaders(xhr.getAllResponseHeaders() || '')
+        }
+        options.url = 'responseURL' in xhr ? xhr.responseURL : options.headers.get('X-Request-URL')
+        var body = 'response' in xhr ? xhr.response : xhr.responseText
+        resolve(new Response(body, options))
+      }
+
+      xhr.onerror = function() {
+        reject(new TypeError('Network request failed'))
+      }
+
+      xhr.ontimeout = function() {
+        reject(new TypeError('Network request failed'))
+      }
+
+      xhr.open(request.method, request.url, true)
+
+      if (request.credentials === 'include') {
+        xhr.withCredentials = true
+      }
+
+      if ('responseType' in xhr && support.blob) {
+        xhr.responseType = 'blob'
+      }
+
+      request.headers.forEach(function(value, name) {
+        xhr.setRequestHeader(name, value)
+      })
+
+      xhr.send(typeof request._bodyInit === 'undefined' ? null : request._bodyInit)
+    })
+  }
+  self.fetch.polyfill = true
+})(typeof self !== 'undefined' ? self : this);
+
+},{}],225:[function(require,module,exports){
 'use strict';
 
 var _react = require('react');
@@ -24318,7 +24781,7 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 
 _reactDom2.default.render(_react2.default.createElement(_routingComponent2.default, null), document.getElementById('react-application'));
 
-},{"./components/routing.component.jsx":231,"react":220,"react-dom":45}],225:[function(require,module,exports){
+},{"./components/routing.component.jsx":234,"react":220,"react-dom":45}],226:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -24339,6 +24802,26 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
+var List = function List(props) {
+    var users = props.users;
+    var listItems = users.map(function (user, index) {
+        return _react2.default.createElement(
+            "li",
+            { key: index },
+            _react2.default.createElement(
+                "h2",
+                null,
+                user
+            )
+        );
+    });
+    return _react2.default.createElement(
+        "ul",
+        null,
+        listItems
+    );
+};
+
 var About = function (_Component) {
     _inherits(About, _Component);
 
@@ -24351,6 +24834,19 @@ var About = function (_Component) {
     _createClass(About, [{
         key: "render",
         value: function render() {
+            var users = ["张三", "李四", "王二", "Jack", "Bush"];
+            var listItems = users.map(function (user, index) {
+                return _react2.default.createElement(
+                    "li",
+                    { key: index },
+                    _react2.default.createElement(
+                        "h2",
+                        null,
+                        " Hello ",
+                        user
+                    )
+                );
+            });
             return _react2.default.createElement(
                 "div",
                 { className: "about" },
@@ -24361,7 +24857,18 @@ var About = function (_Component) {
                         "h1",
                         null,
                         "About page"
-                    )
+                    ),
+                    _react2.default.createElement(
+                        "ul",
+                        null,
+                        listItems
+                    ),
+                    _react2.default.createElement(
+                        "h1",
+                        null,
+                        "List props"
+                    ),
+                    _react2.default.createElement(List, { users: users })
                 )
             );
         }
@@ -24372,7 +24879,307 @@ var About = function (_Component) {
 
 exports.default = About;
 
-},{"react":220}],226:[function(require,module,exports){
+},{"react":220}],227:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+    value: true
+});
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _react = require('react');
+
+var _react2 = _interopRequireDefault(_react);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var AlterPwd = function (_Component) {
+    _inherits(AlterPwd, _Component);
+
+    function AlterPwd(props) {
+        _classCallCheck(this, AlterPwd);
+
+        var _this = _possibleConstructorReturn(this, (AlterPwd.__proto__ || Object.getPrototypeOf(AlterPwd)).call(this, props));
+
+        _this.state = {
+            captchaUrl: _this.props.auth.captchaUrl,
+            validator: {},
+            username: _this.props.auth.getUser()
+        };
+        _this.getCaptcha = _this.getCaptcha.bind(_this);
+        _this.handleInputChange = _this.handleInputChange.bind(_this);
+        _this.handlePhoneBlur = _this.handlePhoneBlur.bind(_this);
+        _this.handlePwdBlur = _this.handlePwdBlur.bind(_this);
+        _this.handleRepwdBlur = _this.handleRepwdBlur.bind(_this);
+        _this.handleVcodeBlur = _this.handleVcodeBlur.bind(_this);
+        _this.alterPwd = _this.alterPwd.bind(_this);
+        return _this;
+    }
+
+    _createClass(AlterPwd, [{
+        key: 'getCaptcha',
+        value: function getCaptcha() {
+            this.setState({
+                captchaUrl: this.props.auth.captchaUrl + '?t=' + Date.now() + Math.random()
+            });
+        }
+    }, {
+        key: 'handleInputChange',
+        value: function handleInputChange(event) {
+            var target = event.target;
+            var value = target.type === 'checkbox' ? target.checked : target.value;
+            var name = target.name;
+            this.setState(_defineProperty({}, name, value));
+        }
+    }, {
+        key: 'handlePhoneBlur',
+        value: function handlePhoneBlur(event) {
+            var value = event.target.value;
+            if (!validator.isMobilePhone(value, 'zh-CN')) {
+                this.setState({ validator: {
+                        invalidPhone: true } });
+            } else {
+                this.setState({ validator: {
+                        invalidPhone: false } });
+            }
+        }
+    }, {
+        key: 'handlePwdBlur',
+        value: function handlePwdBlur(event) {
+            var value = event.target.value;
+            if (!validator.isLength(value, { min: 6, max: 16 })) {
+                this.setState({ validator: {
+                        invalidPwd: true } });
+            } else {
+                this.setState({ validator: {
+                        invalidPwd: false } });
+            }
+        }
+    }, {
+        key: 'handleRepwdBlur',
+        value: function handleRepwdBlur(event) {
+            var value = event.target.value;
+            console.log("state", this.state);
+            if (value != this.state.pwd) {
+                this.setState({ validator: {
+                        invalidRepwd: true
+                    } });
+            } else {
+                this.setState({ validator: {
+                        invalidRepwd: false
+                    } });
+            }
+        }
+    }, {
+        key: 'handleVcodeBlur',
+        value: function handleVcodeBlur(event) {
+            var value = event.target.value;
+            if (value.length < 4) {
+                this.setState({ validator: {
+                        invalidVcode: true
+                    } });
+            } else {
+                this.setState({ validator: {
+                        invalidVcode: false
+                    } });
+            }
+        }
+    }, {
+        key: 'alterPwd',
+        value: function alterPwd() {
+            var _state = this.state,
+                phone = _state.phone,
+                pwd = _state.pwd,
+                repwd = _state.repwd,
+                vcode = _state.vcode;
+
+            var strData = 'phone=' + phone + '&pwd=' + pwd + '&repwd=' + repwd + '&vcode=' + vcode;
+            var url = this.props.auth.apiUrl + "/alter-pwd";
+            fetch(url, { method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: strData }).then(function (res) {
+                return res.json();
+            }).then(function (json) {
+                console.log("json===", json);
+            });
+        }
+    }, {
+        key: 'render',
+        value: function render() {
+            return _react2.default.createElement(
+                'div',
+                { className: 'modal fade', role: 'dialog', id: 'alter-pwd' },
+                _react2.default.createElement(
+                    'div',
+                    { className: 'modal-dialog', role: 'document' },
+                    _react2.default.createElement(
+                        'div',
+                        { className: 'modal-content' },
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'modal-header' },
+                            _react2.default.createElement(
+                                'button',
+                                { type: 'button', className: 'close', 'data-dismiss': 'modal', 'aria-label': 'Close' },
+                                _react2.default.createElement(
+                                    'span',
+                                    {
+                                        'aria-hidden': 'true' },
+                                    '\xD7'
+                                )
+                            ),
+                            _react2.default.createElement(
+                                'h4',
+                                { className: 'modal-title' },
+                                '\u4FEE\u6539\u5BC6\u7801'
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'modal-body' },
+                            _react2.default.createElement(
+                                'form',
+                                { className: 'form-horizontal' },
+                                _react2.default.createElement(
+                                    'div',
+                                    { className: 'form-group' },
+                                    _react2.default.createElement(
+                                        'div',
+                                        { className: 'col-sm-12' },
+                                        _react2.default.createElement('input', { type: 'tel',
+                                            name: 'phone',
+                                            className: 'form-control',
+                                            value: this.state.username,
+                                            placeholder: '\u8BF7\u8F93\u5165\u60A8\u7684\u7535\u8BDD\u53F7\u7801',
+                                            readOnly: true })
+                                    )
+                                ),
+                                _react2.default.createElement(
+                                    'div',
+                                    { className: 'form-group' },
+                                    _react2.default.createElement(
+                                        'div',
+                                        { className: 'col-sm-12' },
+                                        _react2.default.createElement('input', { type: 'password',
+                                            name: 'pwd',
+                                            className: 'form-control',
+                                            onChange: this.handleInputChange,
+                                            onBlur: this.handlePwdBlur,
+                                            placeholder: '\u8BF7\u8F93\u5165\u5BC6\u7801' }),
+                                        this.state.validator.invalidPwd ? _react2.default.createElement(
+                                            'div',
+                                            { className: 'alert alert-danger', role: 'alert' },
+                                            '\u8BF7\u8F93\u51656-20\u4F4D\u5BC6\u7801'
+                                        ) : ""
+                                    )
+                                ),
+                                _react2.default.createElement(
+                                    'div',
+                                    { className: 'form-group' },
+                                    _react2.default.createElement(
+                                        'div',
+                                        { className: 'col-sm-12' },
+                                        _react2.default.createElement('input', { type: 'password',
+                                            name: 'repwd',
+                                            className: 'form-control',
+                                            onChange: this.handleInputChange,
+                                            onBlur: this.handleRepwdBlur,
+                                            placeholder: '\u8BF7\u518D\u6B21\u8F93\u5165\u5BC6\u7801' }),
+                                        this.state.validator.invalidRepwd ? _react2.default.createElement(
+                                            'div',
+                                            { className: 'alert alert-danger', role: 'alert' },
+                                            '\u4E24\u6B21\u5BC6\u7801\u8F93\u5165\u4E0D\u6B63\u786E'
+                                        ) : ""
+                                    )
+                                ),
+                                _react2.default.createElement(
+                                    'div',
+                                    { className: 'form-group' },
+                                    _react2.default.createElement(
+                                        'div',
+                                        { className: 'col-sm-3' },
+                                        _react2.default.createElement('input', { type: 'text',
+                                            name: 'vcode',
+                                            className: 'form-control',
+                                            onChange: this.handleInputChange,
+                                            onBlur: this.handleVcodeBlur,
+                                            placeholder: '\u9A8C\u8BC1\u7801' })
+                                    ),
+                                    _react2.default.createElement(
+                                        'div',
+                                        { className: 'col-sm-3 vcode' },
+                                        _react2.default.createElement('img', { src: this.state.captchaUrl,
+                                            onClick: this.getCaptcha,
+                                            alt: 'error' })
+                                    ),
+                                    _react2.default.createElement(
+                                        'div',
+                                        { className: 'col-sm-6' },
+                                        _react2.default.createElement(
+                                            'p',
+                                            null,
+                                            '\u8BF7\u586B\u5199\u56FE\u7247\u4E2D\u7684\u5B57\u7B26\uFF0C\u4E0D\u533A\u5206\u5927\u5C0F\u5199'
+                                        ),
+                                        _react2.default.createElement(
+                                            'p',
+                                            null,
+                                            _react2.default.createElement(
+                                                'a',
+                                                { onClick: this.getCaptcha },
+                                                '\u770B\u4E0D\u6E05\u695A\uFF0C\u91CD\u65B0\u6362\u4E00\u5F20'
+                                            )
+                                        )
+                                    )
+                                ),
+                                this.state.validator.invalidVcode ? _react2.default.createElement(
+                                    'div',
+                                    { className: 'form-group' },
+                                    _react2.default.createElement(
+                                        'div',
+                                        { className: 'col-sm-12' },
+                                        _react2.default.createElement(
+                                            'div',
+                                            { className: 'alert alert-danger', role: 'alert' },
+                                            '\u9A8C\u8BC1\u7801\u4E0D\u80FD\u4E3A\u7A7A'
+                                        )
+                                    )
+                                ) : ""
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'modal-footer' },
+                            _react2.default.createElement(
+                                'button',
+                                { type: 'button', className: 'btn btn-default', 'data-dismiss': 'modal' },
+                                '\u53D6\u6D88'
+                            ),
+                            _react2.default.createElement(
+                                'button',
+                                { type: 'button', onClick: this.alterPwd, className: 'btn btn-primary', 'data-dismiss': 'modal' },
+                                '\u4FEE\u6539'
+                            )
+                        )
+                    )
+                )
+            );
+        }
+    }]);
+
+    return AlterPwd;
+}(_react.Component);
+
+exports.default = AlterPwd;
+
+},{"react":220}],228:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -24426,7 +25233,7 @@ var Blog = function (_Component) {
 
 exports.default = Blog;
 
-},{"react":220}],227:[function(require,module,exports){
+},{"react":220}],229:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -24480,7 +25287,7 @@ var Contact = function (_Component) {
 
 exports.default = Contact;
 
-},{"react":220}],228:[function(require,module,exports){
+},{"react":220}],230:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -24534,7 +25341,7 @@ var Footer = function (_Component) {
 
 exports.default = Footer;
 
-},{"react":220}],229:[function(require,module,exports){
+},{"react":220}],231:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -24569,7 +25376,7 @@ var Home = function (_Component) {
         value: function render() {
             return _react2.default.createElement(
                 "div",
-                { className: "Home" },
+                { className: "home" },
                 _react2.default.createElement(
                     "div",
                     { className: "container" },
@@ -24588,7 +25395,7 @@ var Home = function (_Component) {
 
 exports.default = Home;
 
-},{"react":220}],230:[function(require,module,exports){
+},{"react":220}],232:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -24614,15 +25421,124 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var Navigation = function (_Component) {
     _inherits(Navigation, _Component);
 
-    function Navigation() {
+    function Navigation(props) {
         _classCallCheck(this, Navigation);
 
-        return _possibleConstructorReturn(this, (Navigation.__proto__ || Object.getPrototypeOf(Navigation)).apply(this, arguments));
+        var _this = _possibleConstructorReturn(this, (Navigation.__proto__ || Object.getPrototypeOf(Navigation)).call(this, props));
+
+        _this.state = {
+            phone: localStorage.getItem('username')
+        };
+        _this._logOut = _this._logOut.bind(_this);
+        return _this;
     }
 
     _createClass(Navigation, [{
+        key: '_logOut',
+        value: function _logOut() {
+            this.props.auth.logout();
+        }
+    }, {
         key: 'render',
         value: function render() {
+            var isLoggedIn = this.props.auth.isLoggedIn;
+
+            var isLogined = isLoggedIn();
+            //alert("isLogined"+isLogined);
+            var signinAndSignUpElement = _react2.default.createElement(
+                'ul',
+                { className: 'nav navbar-nav navbar-right' },
+                _react2.default.createElement(
+                    'li',
+                    { id: 'signin' },
+                    _react2.default.createElement(
+                        'a',
+                        { className: 'active', 'data-toggle': 'modal', 'data-target': '#login' },
+                        _react2.default.createElement('span', {
+                            className: 'glyphicon glyphicon-log-in' }),
+                        ' \u767B\u5F55 '
+                    )
+                ),
+                _react2.default.createElement(
+                    'li',
+                    null,
+                    _react2.default.createElement(
+                        'a',
+                        { 'data-toggle': 'modal', 'data-target': '#signup' },
+                        _react2.default.createElement('span', {
+                            className: 'glyphicon glyphicon-registration-mark' }),
+                        ' \u6CE8\u518C'
+                    )
+                )
+            );
+
+            var signOutElement = _react2.default.createElement(
+                'ul',
+                { className: 'nav navbar-nav navbar-right' },
+                _react2.default.createElement(
+                    'li',
+                    null,
+                    ' ',
+                    _react2.default.createElement(
+                        'a',
+                        { className: 'dropdown-toggle glyphicon glyphicon-user',
+                            'data-toggle': 'dropdown' },
+                        ' \u4F60\u597D ',
+                        localStorage.getItem('username'),
+                        _react2.default.createElement('span', { className: 'caret' })
+                    ),
+                    _react2.default.createElement(
+                        'ul',
+                        { className: 'dropdown-menu', role: 'menu' },
+                        _react2.default.createElement(
+                            'li',
+                            null,
+                            ' ',
+                            _react2.default.createElement(
+                                'a',
+                                { 'data-toggle': 'modal', 'data-target': '#alter-pwd',
+                                    className: 'active' },
+                                '\u91CD\u7F6E\u5BC6\u7801'
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'li',
+                            null,
+                            ' ',
+                            _react2.default.createElement(
+                                _reactRouterDom.NavLink,
+                                { to: '/profile', className: 'active' },
+                                '\u4E2A\u4EBA\u4E2D\u5FC3'
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'li',
+                            null,
+                            ' ',
+                            _react2.default.createElement(
+                                _reactRouterDom.NavLink,
+                                { to: '/my-blog', className: 'active' },
+                                '\u6211\u7684\u535A\u5BA2'
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'li',
+                            { id: 'signout' },
+                            ' ',
+                            _react2.default.createElement(
+                                'a',
+                                { onClick: this._logOut, className: 'active' },
+                                _react2.default.createElement(
+                                    'span',
+                                    { className: 'glyphicon glyphicon-log-out' },
+                                    '\xA0'
+                                ),
+                                '\u9000\u51FA'
+                            )
+                        )
+                    )
+                )
+            );
             return _react2.default.createElement(
                 'header',
                 null,
@@ -24706,32 +25622,7 @@ var Navigation = function (_Component) {
                                     )
                                 )
                             ),
-                            _react2.default.createElement(
-                                'ul',
-                                { className: 'nav navbar-nav navbar-right' },
-                                _react2.default.createElement(
-                                    'li',
-                                    { id: 'signin' },
-                                    _react2.default.createElement(
-                                        'a',
-                                        { className: 'active', 'data-toggle': 'modal', 'data-target': '#login' },
-                                        _react2.default.createElement('span', {
-                                            className: 'glyphicon glyphicon-log-in' }),
-                                        ' \u767B\u5F55 '
-                                    )
-                                ),
-                                _react2.default.createElement(
-                                    'li',
-                                    null,
-                                    _react2.default.createElement(
-                                        'a',
-                                        { 'data-toggle': 'modal', 'data-target': '#signup' },
-                                        _react2.default.createElement('span', {
-                                            className: 'glyphicon glyphicon-registration-mark' }),
-                                        ' \u6CE8\u518C'
-                                    )
-                                )
-                            )
+                            !isLogined ? signinAndSignUpElement : signOutElement
                         )
                     )
                 )
@@ -24744,7 +25635,428 @@ var Navigation = function (_Component) {
 
 exports.default = Navigation;
 
-},{"react":220,"react-router-dom":183}],231:[function(require,module,exports){
+},{"react":220,"react-router-dom":183}],233:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+    value: true
+});
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _react = require('react');
+
+var _react2 = _interopRequireDefault(_react);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var Profile = function (_Component) {
+    _inherits(Profile, _Component);
+
+    function Profile(props) {
+        _classCallCheck(this, Profile);
+
+        var _this = _possibleConstructorReturn(this, (Profile.__proto__ || Object.getPrototypeOf(Profile)).call(this, props));
+
+        _this.state = {
+            validator: {}
+        };
+        _this.handleInputChange = _this.handleInputChange.bind(_this);
+        _this.handleEmailBlur = _this.handleEmailBlur.bind(_this);
+        _this.handleNickNameBlur = _this.handleNickNameBlur.bind(_this);
+        _this.handleRealNameBlur = _this.handleRealNameBlur.bind(_this);
+        _this.handleAgeBlur = _this.handleAgeBlur.bind(_this);
+        _this.handleLoginNameBlur = _this.handleLoginNameBlur.bind(_this);
+        _this.handleAddressBlur = _this.handleAddressBlur.bind(_this);
+        return _this;
+    }
+
+    _createClass(Profile, [{
+        key: 'handleInputChange',
+        value: function handleInputChange(event) {
+            var target = event.target;
+            var value = target.type === 'checkbox' ? target.checked : target.value;
+            var name = target.name;
+
+            this.setState(_defineProperty({}, name, value));
+        }
+    }, {
+        key: 'handleEmailBlur',
+        value: function handleEmailBlur(event) {
+            var value = event.target.value;
+            if (!validator.isEmail(value)) {
+                this.setState({ validator: {
+                        invalidEmail: true } });
+            } else {
+                this.setState({ validator: {
+                        invalidEmail: false } });
+            }
+        }
+    }, {
+        key: 'handleNickNameBlur',
+        value: function handleNickNameBlur(event) {
+            var value = event.target.value;
+            if (!validator.isLength(value, { min: 2, max: 16 })) {
+                this.setState({ validator: {
+                        invalidNickname: true
+                    } });
+            } else {
+                this.setState({ validator: {
+                        invalidNickname: false
+                    } });
+            }
+        }
+    }, {
+        key: 'handleRealNameBlur',
+        value: function handleRealNameBlur(event) {
+            var value = event.target.value;
+            if (!validator.isLength(value, { min: 2, max: 16 })) {
+                this.setState({ validator: {
+                        invalidRealname: true
+                    } });
+            } else {
+                this.setState({ validator: {
+                        invalidRealname: false
+                    } });
+            }
+        }
+    }, {
+        key: 'handleLoginNameBlur',
+        value: function handleLoginNameBlur(event) {
+            var value = event.target.value;
+            if (!validator.isLength(value, { min: 2, max: 16 })) {
+                this.setState({ validator: {
+                        invalidLoginname: true
+                    } });
+            } else {
+                this.setState({ validator: {
+                        invalidLoginname: false
+                    } });
+            }
+        }
+    }, {
+        key: 'handleAgeBlur',
+        value: function handleAgeBlur(event) {
+            var value = event.target.value;
+            if (value.trim().length <= 0) {
+                this.setState({ validator: {
+                        invalidAge: true
+                    } });
+            } else {
+                this.setState({ validator: {
+                        invalidAge: false
+                    } });
+            }
+        }
+    }, {
+        key: 'handleAddressBlur',
+        value: function handleAddressBlur(event) {
+            var value = event.target.value;
+            if (value.trim().length <= 0) {
+                this.setState({ validator: {
+                        invalidAaddress: true
+                    } });
+            } else {
+                this.setState({ validator: {
+                        invalidAddress: false
+                    } });
+            }
+        }
+    }, {
+        key: 'render',
+        value: function render() {
+            return _react2.default.createElement(
+                'main',
+                null,
+                _react2.default.createElement(
+                    'section',
+                    { className: 'container' },
+                    _react2.default.createElement(
+                        'div',
+                        { className: 'row' },
+                        _react2.default.createElement(
+                            'label',
+                            { style: { textAlign: "right" }, className: 'col-sm-2 control-label' },
+                            '\u5934\u50CF:'
+                        ),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'col-sm-10' },
+                            _react2.default.createElement('img', null),
+                            _react2.default.createElement(
+                                'div',
+                                null,
+                                '\u4F60\u8FD8\u6CA1\u6709\u5934\u50CF\uFF0C\u8BF7\u4E0A\u4F20\u4E00\u5F20\u5934\u50CF'
+                            )
+                        )
+                    ),
+                    _react2.default.createElement(
+                        'form',
+                        { className: 'form-horizontal', role: 'form' },
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'label',
+                                { className: 'col-sm-2 control-label' },
+                                'Profile photo'
+                            ),
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-4' },
+                                _react2.default.createElement('input', {
+                                    type: 'file',
+                                    className: 'form-control',
+                                    required: true,
+                                    accept: 'image/*',
+                                    id: 'fieldPhoto',
+                                    name: 'photo' }),
+                                _react2.default.createElement('input', { type: 'hidden', name: 'uid', value: '{{UID}}' })
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-offset-2 col-sm-4' },
+                                _react2.default.createElement(
+                                    'button',
+                                    { type: 'submit', className: 'btn btn-primary' },
+                                    'Submit'
+                                )
+                            )
+                        )
+                    )
+                ),
+                _react2.default.createElement(
+                    'section',
+                    { className: 'container', style: { overflowX: "hidden" } },
+                    _react2.default.createElement(
+                        'h2',
+                        { style: { textAlign: "center", marginBottom: "40px" } },
+                        '\u5B8C\u5584\u4E2A\u4EBA\u4FE1\u606F'
+                    ),
+                    _react2.default.createElement(
+                        'form',
+                        { className: 'form-horizontal',
+                            name: 'signUpForm',
+                            id: 'profileForm'
+                        },
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'label',
+                                { className: 'col-sm-2 control-label' },
+                                '\u90AE\u7BB1:'
+                            ),
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-10' },
+                                _react2.default.createElement('input', { type: 'email',
+                                    name: 'email',
+                                    className: 'form-control',
+                                    id: 'email',
+                                    onChange: this.handleInputChange,
+                                    onBlur: this.handleEmailBlur,
+                                    placeholder: '\u8BF7\u8F93\u5165\u6B63\u786E\u7684\u90AE\u7BB1' }),
+                                this.state.validator.invalidEmail ? _react2.default.createElement(
+                                    'div',
+                                    { className: 'alert alert-danger' },
+                                    'Email\u683C\u5F0F\u4E0D\u6B63\u786E\uFF01'
+                                ) : ""
+                            )
+                        ),
+                        _react2.default.createElement('input', { type: 'tel',
+                            name: 'phone',
+                            id: 'phone',
+                            hidden: 'hidden' }),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'label',
+                                { className: 'col-sm-2 control-label' },
+                                '\u6635\u79F0:'
+                            ),
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-10' },
+                                _react2.default.createElement('input', { type: 'text',
+                                    name: 'nickName',
+                                    className: 'form-control',
+                                    id: 'nickname',
+                                    onChange: this.handleInputChange,
+                                    onBlur: this.handleNickNameBlur,
+                                    placeholder: '\u8BF7\u8F93\u5165\u6635\u79F0' }),
+                                this.state.validator.invalidNickname ? _react2.default.createElement(
+                                    'div',
+                                    { className: 'alert alert-danger' },
+                                    '\u6635\u79F0\u683C\u5F0F\u4E0D\u6B63\u786E\uFF01'
+                                ) : ""
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'label',
+                                { className: 'col-sm-2 control-label' },
+                                '\u771F\u5B9E\u59D3\u540D:'
+                            ),
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-10' },
+                                _react2.default.createElement('input', { type: 'text',
+                                    name: 'realName',
+                                    className: 'form-control',
+                                    id: 'realname',
+                                    onChange: this.handleInputChange,
+                                    onBlur: this.handleRealNameBlur,
+                                    placeholder: '\u8BF7\u8F93\u5165\u771F\u5B9E\u59D3\u540D' }),
+                                this.state.validator.invalidRealname ? _react2.default.createElement(
+                                    'div',
+                                    { className: 'alert alert-danger' },
+                                    '\u771F\u5B9E\u59D3\u540D\u683C\u5F0F\u4E0D\u6B63\u786E\uFF01'
+                                ) : ""
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'label',
+                                { className: 'col-sm-2 control-label' },
+                                '\u7528\u6237\u540D:'
+                            ),
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-10' },
+                                _react2.default.createElement('input', { type: 'text',
+                                    name: 'loginName',
+                                    className: 'form-control',
+                                    id: 'loginname',
+                                    onChange: this.handleInputChange,
+                                    onBlur: this.handleLoginNameBlur,
+                                    placeholder: '\u8BF7\u8BBE\u7F6E\u767B\u5F55\u540D' }),
+                                this.state.validator.invalidLoginname ? _react2.default.createElement(
+                                    'div',
+                                    { className: 'alert alert-danger' },
+                                    '\u767B\u5F55\u540D\u683C\u5F0F\u4E0D\u6B63\u786E\uFF01'
+                                ) : ""
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'label',
+                                { className: 'col-sm-2 control-label' },
+                                '\u5E74\u9F84:'
+                            ),
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-10' },
+                                _react2.default.createElement('input', { type: 'number',
+                                    name: 'age',
+                                    className: 'form-control',
+                                    id: 'age',
+                                    onChange: this.handleInputChange,
+                                    onBlur: this.handleAgeBlur,
+                                    placeholder: '\u8BF7\u8F93\u5165\u5E74\u9F84' }),
+                                this.state.validator.invalidAge ? _react2.default.createElement(
+                                    'div',
+                                    { className: 'alert alert-danger' },
+                                    '\u4E0D\u80FD\u4E3A\u7A7A\uFF01'
+                                ) : ""
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'label',
+                                { className: 'col-sm-2 control-label' },
+                                '\u6027\u522B:'
+                            ),
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-10' },
+                                _react2.default.createElement(
+                                    'div',
+                                    { className: 'checkbox' },
+                                    _react2.default.createElement('input', { type: 'radio',
+                                        value: '1',
+                                        onChange: this.handleInputChange,
+                                        name: 'gender' }),
+                                    '\u7537',
+                                    _react2.default.createElement('input', { type: 'radio',
+                                        value: '0',
+                                        onChange: this.handleInputChange,
+                                        name: 'gender' }),
+                                    '\u5973'
+                                )
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'label',
+                                { className: 'col-sm-2 control-label' },
+                                '\u5730\u5740:'
+                            ),
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-10' },
+                                _react2.default.createElement('input', { type: 'text',
+                                    name: 'address',
+                                    className: 'form-control',
+                                    id: 'address',
+                                    onChange: this.handleInputChange,
+                                    onBlur: this.handleAddressBlur,
+                                    placeholder: '\u8BF7\u8F93\u5165\u60A8\u7684\u5730\u5740' }),
+                                this.state.validator.invalidAaddress ? _react2.default.createElement(
+                                    'div',
+                                    { className: 'alert alert-danger' },
+                                    '\u4E0D\u80FD\u4E3A\u7A7A\uFF01'
+                                ) : ""
+                            )
+                        ),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-offset-11 col-sm-12' },
+                                _react2.default.createElement('input', { type: 'button',
+                                    name: 'update',
+                                    className: 'btn btn-default',
+                                    id: 'update',
+                                    value: '\u786E\u5B9A' })
+                            )
+                        )
+                    )
+                )
+            );
+        }
+    }]);
+
+    return Profile;
+}(_react.Component);
+
+exports.default = Profile;
+
+},{"react":220}],234:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -24758,6 +26070,12 @@ var _react = require('react');
 var _react2 = _interopRequireDefault(_react);
 
 var _reactRouterDom = require('react-router-dom');
+
+var _appConfig = require('../config/app.config.jsx');
+
+var _authService = require('../service/auth.service.jsx');
+
+var _authService2 = _interopRequireDefault(_authService);
 
 var _homeComponent = require('./home/home.component.jsx');
 
@@ -24795,6 +26113,14 @@ var _usersComponent = require('./users/users.component.jsx');
 
 var _usersComponent2 = _interopRequireDefault(_usersComponent);
 
+var _profileComponent = require('./profile/profile.component.jsx');
+
+var _profileComponent2 = _interopRequireDefault(_profileComponent);
+
+var _alterpwdComponent = require('./alter-pwd/alterpwd.component.jsx');
+
+var _alterpwdComponent2 = _interopRequireDefault(_alterpwdComponent);
+
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
@@ -24802,6 +26128,8 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var auth = new _authService2.default();
 
 var Routing = function (_Component) {
     _inherits(Routing, _Component);
@@ -24821,7 +26149,7 @@ var Routing = function (_Component) {
                 _react2.default.createElement(
                     'div',
                     null,
-                    _react2.default.createElement(_navigationComponent2.default, null),
+                    _react2.default.createElement(_navigationComponent2.default, { auth: auth }),
                     _react2.default.createElement(
                         'main',
                         null,
@@ -24829,11 +26157,13 @@ var Routing = function (_Component) {
                         _react2.default.createElement(_reactRouterDom.Route, { path: '/about', component: _aboutComponent2.default }),
                         _react2.default.createElement(_reactRouterDom.Route, { path: '/contact', component: _contactComponent2.default }),
                         _react2.default.createElement(_reactRouterDom.Route, { path: '/blog', component: _blogComponent2.default }),
-                        _react2.default.createElement(_reactRouterDom.Route, { path: '/users', component: _usersComponent2.default })
+                        _react2.default.createElement(_reactRouterDom.Route, { path: '/users', component: _usersComponent2.default }),
+                        _react2.default.createElement(_reactRouterDom.Route, { path: '/profile', auth: auth, component: _profileComponent2.default })
                     ),
                     _react2.default.createElement(_footerComponent2.default, null),
-                    _react2.default.createElement(_signupComponent2.default, null),
-                    _react2.default.createElement(_signinComponent2.default, null)
+                    _react2.default.createElement(_signupComponent2.default, { auth: auth }),
+                    _react2.default.createElement(_signinComponent2.default, { auth: auth }),
+                    _react2.default.createElement(_alterpwdComponent2.default, { auth: auth })
                 )
             );
         }
@@ -24844,8 +26174,8 @@ var Routing = function (_Component) {
 
 exports.default = Routing;
 
-},{"./about/about.component.jsx":225,"./blog/blog.component.jsx":226,"./contact/contact.component.jsx":227,"./footer/footer.component.jsx":228,"./home/home.component.jsx":229,"./navigation/navigation.component.jsx":230,"./sign-in/signin.component.jsx":232,"./sign-up/signup.component.jsx":233,"./users/users.component.jsx":234,"react":220,"react-router-dom":183}],232:[function(require,module,exports){
-"use strict";
+},{"../config/app.config.jsx":238,"../service/auth.service.jsx":239,"./about/about.component.jsx":226,"./alter-pwd/alterpwd.component.jsx":227,"./blog/blog.component.jsx":228,"./contact/contact.component.jsx":229,"./footer/footer.component.jsx":230,"./home/home.component.jsx":231,"./navigation/navigation.component.jsx":232,"./profile/profile.component.jsx":233,"./sign-in/signin.component.jsx":235,"./sign-up/signup.component.jsx":236,"./users/users.component.jsx":237,"react":220,"react-router-dom":183}],235:[function(require,module,exports){
+'use strict';
 
 Object.defineProperty(exports, "__esModule", {
     value: true
@@ -24853,11 +26183,15 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
-var _react = require("react");
+var _react = require('react');
 
 var _react2 = _interopRequireDefault(_react);
 
+require('whatwg-fetch');
+
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
@@ -24868,149 +26202,280 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var SignIn = function (_Component) {
     _inherits(SignIn, _Component);
 
-    function SignIn() {
+    function SignIn(props) {
         _classCallCheck(this, SignIn);
 
-        return _possibleConstructorReturn(this, (SignIn.__proto__ || Object.getPrototypeOf(SignIn)).apply(this, arguments));
+        var _this = _possibleConstructorReturn(this, (SignIn.__proto__ || Object.getPrototypeOf(SignIn)).call(this, props));
+
+        _this.state = {
+            captchaUrl: _this.props.auth.captchaUrl,
+            phone: '',
+            password: '',
+            isRemenber: false,
+            signined: false,
+            captcha: '',
+            validator: {}
+        };
+        _this.getCaptcha = _this.getCaptcha.bind(_this);
+        _this.handleInputChange = _this.handleInputChange.bind(_this);
+        _this.handlePhoneBlur = _this.handlePhoneBlur.bind(_this);
+        _this.handlePwdBlur = _this.handlePwdBlur.bind(_this);
+        _this.handleVcodeBlur = _this.handleVcodeBlur.bind(_this);
+        _this.Signin = _this.Signin.bind(_this);
+        return _this;
     }
 
     _createClass(SignIn, [{
-        key: "render",
+        key: 'getCaptcha',
+        value: function getCaptcha() {
+            this.setState({
+                captchaUrl: this.props.auth.captchaUrl + '?t=' + Date.now() + Math.random()
+            });
+        }
+    }, {
+        key: 'handleInputChange',
+        value: function handleInputChange(event) {
+            var target = event.target;
+            var value = target.type === 'checkbox' ? target.checked : target.value;
+            var name = target.name;
+
+            this.setState(_defineProperty({}, name, value));
+        }
+    }, {
+        key: 'handlePhoneBlur',
+        value: function handlePhoneBlur(event) {
+            var value = event.target.value;
+            if (!validator.isMobilePhone(value, 'zh-CN')) {
+                this.setState({ validator: {
+                        invalidPhone: true } });
+            } else {
+                this.setState({ validator: {
+                        invalidPhone: false } });
+            }
+        }
+    }, {
+        key: 'handlePwdBlur',
+        value: function handlePwdBlur(event) {
+            var value = event.target.value;
+            if (!validator.isLength(value, { min: 6, max: 16 })) {
+                this.setState({ validator: {
+                        invalidPwd: true } });
+            } else {
+                this.setState({ validator: {
+                        invalidPwd: false } });
+            }
+        }
+    }, {
+        key: 'handleVcodeBlur',
+        value: function handleVcodeBlur(event) {
+            var value = event.target.value;
+            if (value.length < 4) {
+                this.setState({ validator: {
+                        invalidVcode: true
+                    } });
+            } else {
+                this.setState({ validator: {
+                        invalidVcode: false
+                    } });
+            }
+        }
+    }, {
+        key: 'Signin',
+        value: function Signin() {
+            var _state = this.state,
+                phone = _state.phone,
+                pwd = _state.pwd,
+                vcode = _state.vcode;
+
+            var strData = 'phone=' + phone + '&pwd=' + pwd + '&vcode=' + vcode;
+            var url = this.props.auth.apiUrl + '/signin';
+
+            fetch(url, { method: "POST",
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: strData }).then(function (response) {
+                return response.json();
+            }).then(function (json) {
+                if (json.code === 1) {
+                    var _phone = json.users[0].phone;
+                    var _pwd = json.users[0].hashed_password;
+                    var uid = json.users[0]._id;
+                    localStorage.setItem('username', _phone);
+                    localStorage.setItem('userid', uid);
+                    // window.location.href = "/";
+                }
+            });
+        }
+    }, {
+        key: 'render',
         value: function render() {
+            var _this2 = this;
+
             return _react2.default.createElement(
-                "div",
-                { className: "modal fade", role: "dialog", id: "login" },
+                'div',
+                { className: 'modal fade', role: 'dialog', id: 'login' },
                 _react2.default.createElement(
-                    "div",
-                    { className: "modal-dialog", role: "document" },
+                    'div',
+                    { className: 'modal-dialog', role: 'document' },
                     _react2.default.createElement(
-                        "div",
-                        { className: "modal-content" },
+                        'div',
+                        { className: 'modal-content' },
                         _react2.default.createElement(
-                            "div",
-                            { className: "modal-header" },
+                            'div',
+                            { className: 'modal-header' },
                             _react2.default.createElement(
-                                "button",
-                                { type: "button", className: "close", "data-dismiss": "modal", "aria-label": "Close" },
+                                'button',
+                                { type: 'button', className: 'close', 'data-dismiss': 'modal', 'aria-label': 'Close' },
                                 _react2.default.createElement(
-                                    "span",
+                                    'span',
                                     {
-                                        "aria-hidden": "true" },
-                                    "\xD7"
+                                        'aria-hidden': 'true' },
+                                    '\xD7'
                                 )
                             ),
                             _react2.default.createElement(
-                                "h4",
-                                { className: "modal-title" },
-                                "\u767B\u5F55"
+                                'h4',
+                                { className: 'modal-title' },
+                                '\u767B\u5F55'
                             )
                         ),
                         _react2.default.createElement(
-                            "div",
-                            { className: "modal-body" },
+                            'div',
+                            { className: 'modal-body' },
                             _react2.default.createElement(
-                                "form",
-                                { className: "form-horizontal" },
+                                'form',
+                                { className: 'form-horizontal' },
                                 _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
+                                    'div',
+                                    { className: 'form-group' },
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-12" },
-                                        _react2.default.createElement("input", { type: "tel",
-                                            name: "phone",
-                                            className: "form-control",
-                                            id: "login-tel",
-                                            placeholder: "\u8BF7\u8F93\u5165\u60A8\u7684\u7535\u8BDD\u53F7\u7801" }),
-                                        _react2.default.createElement(
-                                            "div",
-                                            { id: "phoneAlert", className: "alert alert-danger", role: "alert" },
-                                            "\u624B\u673A\u53F7\u7801\u683C\u5F0F\u4E0D\u6B63\u786E"
-                                        )
+                                        'div',
+                                        { className: 'col-sm-12' },
+                                        _react2.default.createElement('input', { type: 'tel',
+                                            name: 'phone',
+                                            className: 'form-control',
+                                            id: 'login-tel',
+                                            onChange: this.handleInputChange,
+                                            value: this.state.phone,
+                                            onBlur: function onBlur(e) {
+                                                return _this2.handlePhoneBlur(e);
+                                            },
+                                            placeholder: '\u8BF7\u8F93\u5165\u60A8\u7684\u7535\u8BDD\u53F7\u7801' }),
+                                        this.state.validator.invalidPhone ? _react2.default.createElement(
+                                            'div',
+                                            { className: 'alert alert-danger', role: 'alert' },
+                                            '\u624B\u673A\u53F7\u7801\u683C\u5F0F\u4E0D\u6B63\u786E'
+                                        ) : ""
                                     )
                                 ),
                                 _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
+                                    'div',
+                                    { className: 'form-group' },
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-12" },
-                                        _react2.default.createElement("input", { type: "password",
-                                            name: "pwd",
-                                            className: "form-control",
-                                            id: "login-pwd",
-                                            placeholder: "\u8BF7\u8F93\u5165\u5BC6\u7801" }),
-                                        _react2.default.createElement(
-                                            "div",
-                                            { id: "pwdAlert", className: "alert alert-danger", role: "alert" },
-                                            "\u8BF7\u8F93\u51656-20\u4F4D\u5BC6\u7801"
-                                        )
+                                        'div',
+                                        { className: 'col-sm-12' },
+                                        _react2.default.createElement('input', { type: 'password',
+                                            name: 'pwd',
+                                            className: 'form-control',
+                                            id: 'login-pwd',
+                                            onChange: this.handleInputChange,
+                                            onBlur: this.handlePwdBlur,
+                                            placeholder: '\u8BF7\u8F93\u5165\u5BC6\u7801'
+                                        }),
+                                        this.state.validator.invalidPwd ? _react2.default.createElement(
+                                            'div',
+                                            { className: 'alert alert-danger', role: 'alert' },
+                                            '\u8BF7\u8F93\u51656-20\u4F4D\u5BC6\u7801'
+                                        ) : ""
                                     )
                                 ),
                                 _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
+                                    'div',
+                                    { className: 'form-group' },
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-3" },
-                                        _react2.default.createElement("input", { type: "text",
-                                            name: "vcode",
-                                            className: "form-control",
-                                            id: "register_vcode",
-                                            placeholder: "\u9A8C\u8BC1\u7801" })
+                                        'div',
+                                        { className: 'col-sm-3' },
+                                        _react2.default.createElement('input', { type: 'text',
+                                            name: 'vcode',
+                                            onChange: this.handleInputChange,
+                                            onBlur: this.handleVcodeBlur,
+                                            className: 'form-control',
+                                            id: 'register_vcode',
+                                            placeholder: '\u9A8C\u8BC1\u7801' })
                                     ),
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-3 vcode" },
-                                        _react2.default.createElement("img", { src: "", alt: "error" })
+                                        'div',
+                                        { className: 'col-sm-3 vcode' },
+                                        _react2.default.createElement('img', { src: this.state.captchaUrl,
+                                            onClick: this.getCaptcha.bind(this),
+                                            alt: 'error'
+                                        })
                                     ),
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-6" },
+                                        'div',
+                                        { className: 'col-sm-6' },
                                         _react2.default.createElement(
-                                            "p",
+                                            'p',
                                             null,
-                                            "\u8BF7\u586B\u5199\u56FE\u7247\u4E2D\u7684\u5B57\u7B26\uFF0C\u4E0D\u533A\u5206\u5927\u5C0F\u5199"
+                                            '\u8BF7\u586B\u5199\u56FE\u7247\u4E2D\u7684\u5B57\u7B26\uFF0C\u4E0D\u533A\u5206\u5927\u5C0F\u5199'
                                         ),
                                         _react2.default.createElement(
-                                            "p",
+                                            'p',
                                             null,
                                             _react2.default.createElement(
-                                                "a",
+                                                'a',
+                                                { onClick: this.getCaptcha.bind(this) },
+                                                '\u770B\u4E0D\u6E05\u695A\uFF0C\u91CD\u65B0\u6362\u4E00\u5F20'
+                                            )
+                                        )
+                                    )
+                                ),
+                                this.state.validator.invalidVcode ? _react2.default.createElement(
+                                    'div',
+                                    { className: 'form-group' },
+                                    _react2.default.createElement(
+                                        'div',
+                                        { className: 'col-sm-12' },
+                                        _react2.default.createElement(
+                                            'div',
+                                            { className: 'alert alert-danger', role: 'alert' },
+                                            '\u9A8C\u8BC1\u7801\u4E0D\u80FD\u4E3A\u7A7A'
+                                        )
+                                    )
+                                ) : "",
+                                _react2.default.createElement(
+                                    'div',
+                                    { className: 'form-group' },
+                                    _react2.default.createElement(
+                                        'div',
+                                        { className: 'col-sm-10' },
+                                        _react2.default.createElement(
+                                            'div',
+                                            { className: 'checkbox' },
+                                            _react2.default.createElement(
+                                                'label',
                                                 null,
-                                                "\u770B\u4E0D\u6E05\u695A\uFF0C\u91CD\u65B0\u6362\u4E00\u5F20"
+                                                _react2.default.createElement('input', { name: 'remember',
+                                                    type: 'checkbox',
+                                                    onChange: this.handleInputChange }),
+                                                ' Remember me'
                                             )
                                         )
                                     )
                                 ),
                                 _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
+                                    'div',
+                                    { className: 'form-group' },
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-12" },
+                                        'div',
+                                        { className: 'col-sm-4 col-sm-offset-8' },
                                         _react2.default.createElement(
-                                            "div",
-                                            { id: "vcodeAlert", className: "alert alert-danger", role: "alert" },
-                                            "\u9A8C\u8BC1\u7801\u4E0D\u80FD\u4E3A\u7A7A"
-                                        )
-                                    )
-                                ),
-                                _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
-                                    _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-4 col-sm-offset-8" },
-                                        _react2.default.createElement(
-                                            "button",
-                                            { type: "button", className: "btn btn-default", "data-dismiss": "modal" },
-                                            "\u53D6\u6D88"
+                                            'button',
+                                            { type: 'button', className: 'btn btn-default', 'data-dismiss': 'modal' },
+                                            '\u53D6\u6D88'
                                         ),
                                         _react2.default.createElement(
-                                            "button",
-                                            { type: "submit", className: "btn btn-primary" },
-                                            "\u767B\u5F55"
+                                            'button',
+                                            { type: 'button', onClick: this.Signin, className: 'btn btn-primary' },
+                                            '\u767B\u5F55'
                                         )
                                     )
                                 )
@@ -25027,8 +26492,8 @@ var SignIn = function (_Component) {
 
 exports.default = SignIn;
 
-},{"react":220}],233:[function(require,module,exports){
-"use strict";
+},{"react":220,"whatwg-fetch":224}],236:[function(require,module,exports){
+'use strict';
 
 Object.defineProperty(exports, "__esModule", {
     value: true
@@ -25036,11 +26501,13 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
-var _react = require("react");
+var _react = require('react');
 
 var _react2 = _interopRequireDefault(_react);
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
@@ -25051,165 +26518,287 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var SignUp = function (_Component) {
     _inherits(SignUp, _Component);
 
-    function SignUp() {
+    function SignUp(props) {
         _classCallCheck(this, SignUp);
 
-        return _possibleConstructorReturn(this, (SignUp.__proto__ || Object.getPrototypeOf(SignUp)).apply(this, arguments));
+        var _this = _possibleConstructorReturn(this, (SignUp.__proto__ || Object.getPrototypeOf(SignUp)).call(this, props));
+
+        _this.state = {
+            captchaUrl: _this.props.auth.captchaUrl,
+            phone: '',
+            password: '',
+            isRemenber: false,
+            signined: false,
+            captcha: '',
+            validator: {}
+        };
+        _this.getCaptcha = _this.getCaptcha.bind(_this);
+        _this.handleInputChange = _this.handleInputChange.bind(_this);
+        _this.handlePhoneBlur = _this.handlePhoneBlur.bind(_this);
+        _this.handlePwdBlur = _this.handlePwdBlur.bind(_this);
+        _this.handleVcodeBlur = _this.handleVcodeBlur.bind(_this);
+        _this.handleRepwdBlur = _this.handleRepwdBlur.bind(_this);
+        _this.signUp = _this.signUp.bind(_this);
+        return _this;
     }
 
     _createClass(SignUp, [{
-        key: "render",
+        key: 'getCaptcha',
+        value: function getCaptcha() {
+            this.setState({
+                captchaUrl: this.props.auth.captchaUrl + '?t=' + Date.now() + Math.random()
+            });
+        }
+    }, {
+        key: 'handleInputChange',
+        value: function handleInputChange(event) {
+            var target = event.target;
+            var value = target.type === 'checkbox' ? target.checked : target.value;
+            var name = target.name;
+
+            this.setState(_defineProperty({}, name, value));
+        }
+    }, {
+        key: 'handlePhoneBlur',
+        value: function handlePhoneBlur(event) {
+            var value = event.target.value;
+            if (!validator.isMobilePhone(value, 'zh-CN')) {
+                this.setState({ validator: {
+                        invalidPhone: true } });
+            } else {
+                this.setState({ validator: {
+                        invalidPhone: false } });
+            }
+        }
+    }, {
+        key: 'handlePwdBlur',
+        value: function handlePwdBlur(event) {
+            var value = event.target.value;
+            if (!validator.isLength(value, { min: 6, max: 16 })) {
+                this.setState({ validator: {
+                        invalidPwd: true } });
+            } else {
+                this.setState({ validator: {
+                        invalidPwd: false } });
+            }
+        }
+    }, {
+        key: 'handleVcodeBlur',
+        value: function handleVcodeBlur(event) {
+            var value = event.target.value;
+            if (value.length < 4) {
+                this.setState({ validator: {
+                        invalidVcode: true
+                    } });
+            } else {
+                this.setState({ validator: {
+                        invalidVcode: false
+                    } });
+            }
+        }
+    }, {
+        key: 'handleRepwdBlur',
+        value: function handleRepwdBlur(event) {
+            var value = event.target.value;
+            console.log("state", this.state);
+            if (value != this.state.pwd) {
+                this.setState({ validator: {
+                        invalidRepwd: true
+                    } });
+            } else {
+                this.setState({ validator: {
+                        invalidRepwd: false
+                    } });
+            }
+        }
+    }, {
+        key: 'signUp',
+        value: function signUp() {
+            var _state = this.state,
+                phone = _state.phone,
+                pwd = _state.pwd,
+                repwd = _state.repwd,
+                vcode = _state.vcode;
+
+            var data = 'phone=' + phone + '&pwd=' + pwd + '&repwd=' + repwd + '&vcode=' + vcode;
+            var url = this.props.auth.apiUrl + "/signup";
+            fetch(url, { method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: data }).then(function (response) {
+                console.log("signup response", response);
+                return response.json();
+            }).then(function (json) {
+                console.log("signup json", json);
+            });
+        }
+    }, {
+        key: 'render',
         value: function render() {
+            var _this2 = this;
+
             return _react2.default.createElement(
-                "div",
-                { className: "modal fade", tabIndex: "-1", role: "dialog", id: "signup" },
+                'div',
+                { className: 'modal fade', tabIndex: '-1', role: 'dialog', id: 'signup' },
                 _react2.default.createElement(
-                    "div",
-                    { className: "modal-dialog", role: "document" },
+                    'div',
+                    { className: 'modal-dialog', role: 'document' },
                     _react2.default.createElement(
-                        "div",
-                        { className: "modal-content" },
+                        'div',
+                        { className: 'modal-content' },
                         _react2.default.createElement(
-                            "div",
-                            { className: "modal-header" },
+                            'div',
+                            { className: 'modal-header' },
                             _react2.default.createElement(
-                                "button",
-                                { type: "button", className: "close", "data-dismiss": "modal", "aria-label": "Close" },
+                                'button',
+                                { type: 'button', className: 'close', 'data-dismiss': 'modal', 'aria-label': 'Close' },
                                 _react2.default.createElement(
-                                    "span",
-                                    { "aria-hidden": "true" },
-                                    "\xD7"
+                                    'span',
+                                    { 'aria-hidden': 'true' },
+                                    '\xD7'
                                 )
                             ),
                             _react2.default.createElement(
-                                "h4",
-                                { className: "modal-title" },
-                                "\u6CE8\u518C"
+                                'h4',
+                                { className: 'modal-title' },
+                                '\u6CE8\u518C'
                             )
                         ),
                         _react2.default.createElement(
-                            "div",
-                            { className: "modal-body" },
+                            'div',
+                            { className: 'modal-body' },
                             _react2.default.createElement(
-                                "form",
-                                { className: "form-horizontal",
-                                    id: "signUpForm" },
+                                'form',
+                                { className: 'form-horizontal',
+                                    id: 'signUpForm' },
                                 _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
+                                    'div',
+                                    { className: 'form-group' },
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-12" },
-                                        _react2.default.createElement("input", { type: "tel",
-                                            name: "phone",
-                                            className: "form-control",
-                                            placeholder: "\u8BF7\u8F93\u5165\u6B63\u786E\u7684\u624B\u673A\u53F7\u7801" }),
-                                        _react2.default.createElement(
-                                            "div",
-                                            { id: "phoneAlert", className: "alert alert-danger", role: "alert" },
-                                            "\u624B\u673A\u683C\u5F0F\u4E0D\u6B63\u786E"
-                                        )
+                                        'div',
+                                        { className: 'col-sm-12' },
+                                        _react2.default.createElement('input', { type: 'tel',
+                                            name: 'phone',
+                                            onChange: this.handleInputChange,
+                                            onBlur: function onBlur(e) {
+                                                return _this2.handlePhoneBlur(e);
+                                            },
+                                            className: 'form-control',
+                                            placeholder: '\u8BF7\u8F93\u5165\u6B63\u786E\u7684\u624B\u673A\u53F7\u7801'
+                                        }),
+                                        this.state.validator.invalidPhone ? _react2.default.createElement(
+                                            'div',
+                                            { className: 'alert alert-danger', role: 'alert' },
+                                            '\u624B\u673A\u53F7\u7801\u683C\u5F0F\u4E0D\u6B63\u786E'
+                                        ) : ""
                                     )
                                 ),
                                 _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
+                                    'div',
+                                    { className: 'form-group' },
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-12" },
-                                        _react2.default.createElement("input", { type: "password",
-                                            name: "pwd",
-                                            className: "form-control",
-                                            placeholder: "\u8BF7\u8F93\u5165\u5BC6\u7801" }),
-                                        _react2.default.createElement(
-                                            "div",
-                                            { id: "pwdAlert", className: "alert alert-danger", role: "alert" },
-                                            "\u8BF7\u8F93\u51656-20\u4F4D\u5BC6\u7801"
-                                        )
+                                        'div',
+                                        { className: 'col-sm-12' },
+                                        _react2.default.createElement('input', { type: 'password',
+                                            name: 'pwd',
+                                            className: 'form-control',
+                                            onChange: this.handleInputChange,
+                                            onBlur: this.handlePwdBlur,
+                                            placeholder: '\u8BF7\u8F93\u5165\u5BC6\u7801'
+                                        }),
+                                        this.state.validator.invalidPwd ? _react2.default.createElement(
+                                            'div',
+                                            { className: 'alert alert-danger', role: 'alert' },
+                                            '\u8BF7\u8F93\u51656-20\u4F4D\u5BC6\u7801'
+                                        ) : ""
                                     )
                                 ),
                                 _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
+                                    'div',
+                                    { className: 'form-group' },
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-12" },
-                                        _react2.default.createElement("input", { type: "password",
-                                            name: "repwd",
-                                            className: "form-control",
-                                            id: "register_repwd",
-                                            placeholder: "\u91CD\u65B0\u8F93\u5165\u5BC6\u7801" }),
-                                        _react2.default.createElement(
-                                            "div",
-                                            { id: "repwdAlert", className: "alert alert-danger", role: "alert" },
-                                            "\u4E24\u6B21\u5BC6\u7801\u8F93\u5165\u4E0D\u6B63\u786E"
-                                        )
+                                        'div',
+                                        { className: 'col-sm-12' },
+                                        _react2.default.createElement('input', { type: 'password',
+                                            name: 'repwd',
+                                            className: 'form-control',
+                                            id: 'register_repwd',
+                                            onChange: this.handleInputChange,
+                                            onBlur: this.handleRepwdBlur,
+                                            placeholder: '\u91CD\u65B0\u8F93\u5165\u5BC6\u7801'
+                                        }),
+                                        this.state.validator.invalidRepwd ? _react2.default.createElement(
+                                            'div',
+                                            { className: 'alert alert-danger', role: 'alert' },
+                                            '\u4E24\u6B21\u5BC6\u7801\u8F93\u5165\u4E0D\u6B63\u786E'
+                                        ) : ''
                                     )
                                 ),
                                 _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
+                                    'div',
+                                    { className: 'form-group' },
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-2" },
-                                        _react2.default.createElement("input", { type: "text",
-                                            name: "vcode",
-                                            className: "form-control",
-                                            id: "register_vcode",
-                                            placeholder: "\u9A8C\u8BC1\u7801" })
+                                        'div',
+                                        { className: 'col-sm-2' },
+                                        _react2.default.createElement('input', { type: 'text',
+                                            name: 'vcode',
+                                            className: 'form-control',
+                                            id: 'register_vcode',
+                                            onChange: this.handleInputChange,
+                                            onBlur: this.handleVcodeBlur,
+                                            placeholder: '\u9A8C\u8BC1\u7801' })
                                     ),
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-3 vcode" },
-                                        _react2.default.createElement("img", { alt: "error" })
+                                        'div',
+                                        { className: 'col-sm-3 vcode' },
+                                        _react2.default.createElement('img', { alt: 'error', src: this.state.captchaUrl,
+                                            onClick: this.getCaptcha.bind(this) })
                                     ),
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-7" },
+                                        'div',
+                                        { className: 'col-sm-7' },
                                         _react2.default.createElement(
-                                            "p",
+                                            'p',
                                             null,
-                                            "\u8BF7\u586B\u5199\u56FE\u7247\u4E2D\u7684\u5B57\u7B26\uFF0C\u4E0D\u533A\u5206\u5927\u5C0F\u5199"
+                                            '\u8BF7\u586B\u5199\u56FE\u7247\u4E2D\u7684\u5B57\u7B26\uFF0C\u4E0D\u533A\u5206\u5927\u5C0F\u5199'
                                         ),
                                         _react2.default.createElement(
-                                            "p",
+                                            'p',
                                             null,
                                             _react2.default.createElement(
-                                                "a",
-                                                null,
-                                                "\u770B\u4E0D\u6E05\u695A\uFF0C\u91CD\u65B0\u6362\u4E00\u5F20"
+                                                'a',
+                                                { onClick: this.getCaptcha.bind(this) },
+                                                '\u770B\u4E0D\u6E05\u695A\uFF0C\u91CD\u65B0\u6362\u4E00\u5F20'
                                             )
                                         )
                                     )
                                 ),
-                                _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
+                                this.state.validator.invalidVcode ? _react2.default.createElement(
+                                    'div',
+                                    { className: 'form-group' },
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-12" },
+                                        'div',
+                                        { className: 'col-sm-12' },
                                         _react2.default.createElement(
-                                            "div",
-                                            { id: "vcodeAlert", className: "alert alert-danger", role: "alert" },
-                                            "\u9A8C\u8BC1\u7801\u4E0D\u80FD\u4E3A\u7A7A"
+                                            'div',
+                                            { className: 'alert alert-danger', role: 'alert' },
+                                            '\u9A8C\u8BC1\u7801\u4E0D\u80FD\u4E3A\u7A7A'
                                         )
                                     )
-                                ),
+                                ) : "",
                                 _react2.default.createElement(
-                                    "div",
-                                    { className: "form-group" },
+                                    'div',
+                                    { className: 'form-group' },
                                     _react2.default.createElement(
-                                        "div",
-                                        { className: "col-sm-4 col-sm-offset-8" },
+                                        'div',
+                                        { className: 'col-sm-4 col-sm-offset-8' },
                                         _react2.default.createElement(
-                                            "button",
-                                            { type: "button", className: "btn btn-default", "data-dismiss": "modal" },
-                                            "\u53D6\u6D88"
+                                            'button',
+                                            { type: 'button', className: 'btn btn-default', 'data-dismiss': 'modal' },
+                                            '\u53D6\u6D88'
                                         ),
                                         _react2.default.createElement(
-                                            "button",
-                                            { type: "submit", className: "btn btn-primary" },
-                                            "\u6CE8\u518C"
+                                            'button',
+                                            { type: 'button', onClick: this.signUp, className: 'btn btn-primary' },
+                                            '\u6CE8\u518C'
                                         )
                                     )
                                 )
@@ -25226,7 +26815,7 @@ var SignUp = function (_Component) {
 
 exports.default = SignUp;
 
-},{"react":220}],234:[function(require,module,exports){
+},{"react":220}],237:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -25280,4 +26869,84 @@ var Users = function (_Component) {
 
 exports.default = Users;
 
-},{"react":220}]},{},[224]);
+},{"react":220}],238:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+    value: true
+});
+var config = exports.config = {
+    'API_HOST': 'http://127.0.0.1:3009',
+    'API_ENDPOINT': 'http://127.0.0.1:3009/api',
+    'API_CAPTCHA': 'http://127.0.0.1:3009/api/captcha',
+    'AppName': 'reactobj',
+    'APP_COPY_RIGHT': 2018
+};
+
+},{}],239:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+    value: true
+});
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _appConfig = require('../config/app.config.jsx');
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+var Auth = function () {
+    function Auth() {
+        _classCallCheck(this, Auth);
+
+        this.apiUrl = _appConfig.config.API_ENDPOINT;
+        this.captchaUrl = _appConfig.config.API_CAPTCHA;
+        this.remoteHost = _appConfig.config.API_HOST;
+        this.APP_COPY_RIGHT = _appConfig.config.APP_COPY_RIGHT;
+        this.getCaptcha = this.getCaptcha.bind(this);
+        this.login = this.login.bind(this);
+        this.logout = this.logout.bind(this);
+        this.getUser = this.getUser.bind(this);
+        this.isLoggedIn = this.isLoggedIn.bind(this);
+    }
+
+    _createClass(Auth, [{
+        key: 'getCaptcha',
+        value: function getCaptcha() {
+            this.captchaUrl = _appConfig.config.API_CAPTCHA + '?t=' + Date.now() + Math.random();
+        }
+    }, {
+        key: 'login',
+        value: function login(user, password) {
+            if (user === this.getUser()) {
+                localStorage.setItem('username', user);
+                return true;
+            }
+
+            return false;
+        }
+    }, {
+        key: 'logout',
+        value: function logout() {
+            localStorage.removeItem('username');
+            window.location.href = "/";
+        }
+    }, {
+        key: 'getUser',
+        value: function getUser() {
+            return localStorage.getItem('username');
+        }
+    }, {
+        key: 'isLoggedIn',
+        value: function isLoggedIn() {
+            return this.getUser() !== null;
+        }
+    }]);
+
+    return Auth;
+}();
+
+exports.default = Auth;
+
+},{"../config/app.config.jsx":238}]},{},[225]);

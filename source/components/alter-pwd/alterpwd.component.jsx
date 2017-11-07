@@ -1,38 +1,34 @@
 import React, {Component} from 'react';
-import 'whatwg-fetch';
 
-class SignIn extends Component {
-    constructor(props){
+class AlterPwd extends Component {
+    constructor(props)
+    {
         super(props);
         this.state = {
             captchaUrl: this.props.auth.captchaUrl,
-            phone:'',
-            password: '',
-            isRemenber:false,
-            signined: false,
-            captcha: '',
-            validator:{ }
-        };
+            validator: {},
+            username: this.props.auth.getUser()
+        }
         this.getCaptcha = this.getCaptcha.bind(this);
         this.handleInputChange = this.handleInputChange.bind(this);
         this.handlePhoneBlur = this.handlePhoneBlur.bind(this);
         this.handlePwdBlur = this.handlePwdBlur.bind(this);
+        this.handleRepwdBlur = this.handleRepwdBlur.bind(this);
         this.handleVcodeBlur = this.handleVcodeBlur.bind(this);
-        this.Signin = this.Signin.bind(this);
+        this.alterPwd = this.alterPwd.bind(this);
     }
-    getCaptcha() {
+    getCaptcha(){
         this.setState({
-            captchaUrl: this.props.auth.captchaUrl+'?t='+ Date.now()+ Math.random(),
+            captchaUrl: this.props.auth.captchaUrl + '?t=' + Date.now() + Math.random()
         });
     }
-    handleInputChange(event) {
-        const target = event.target;
-        const value = target.type === 'checkbox' ? target.checked : target.value;
-        const name = target.name;
-
+    handleInputChange(event){
+        let target = event.target;
+        let value = target.type === 'checkbox' ? target.checked : target.value;
+        let name = target.name;
         this.setState({
             [name]: value
-        });
+        })
     }
     handlePhoneBlur(event) {
         const value = event.target.value;
@@ -57,6 +53,21 @@ class SignIn extends Component {
                 invalidPwd: false}});
         }
     }
+    handleRepwdBlur(event){
+        var value = event.target.value;
+        console.log("state", this.state);
+        if(value != this.state.pwd)
+        {
+            this.setState({validator:{
+                invalidRepwd: true
+            }});
+        }
+        else{
+            this.setState({validator:{
+                invalidRepwd: false
+            }});
+        }
+    }
     handleVcodeBlur(event){
         const value = event.target.value;
         if(value.length < 4)
@@ -71,55 +82,39 @@ class SignIn extends Component {
             }});
         }
     }
-    Signin(){
-       let {phone, pwd, vcode} = this.state;
-       let strData = `phone=${phone}&pwd=${pwd}&vcode=${vcode}`;
-       let url = this.props.auth.apiUrl + '/signin';
-
-       fetch(url, {method: "POST",
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body:strData})
-           .then(function (response) {
-                return response.json();
+    alterPwd(){
+        let {phone, pwd, repwd, vcode} = this.state;
+        let strData = `phone=${phone}&pwd=${pwd}&repwd=${repwd}&vcode=${vcode}`;
+        let url = this.props.auth.apiUrl + "/alter-pwd";
+        fetch(url, {method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: strData})
+            .then(function (res) {
+                return res.json();
             })
-           .then(function (json) {
-               if(json.code === 1)
-               {
-                   let phone = json.users[0].phone;
-                   let pwd = json.users[0].hashed_password;
-                   let uid = json.users[0]._id;
-                   localStorage.setItem('username', phone);
-                   localStorage.setItem('userid', uid);
-                   // window.location.href = "/";
-               }
-           });
+            .then(function (json) {
+                console.log("json===", json);
+            })
     }
     render() {
         return (
-            <div className="modal fade"  role="dialog" id="login">
+            <div className="modal fade" role="dialog" id="alter-pwd">
                 <div className="modal-dialog" role="document">
                     <div className="modal-content">
                         <div className="modal-header">
                             <button type="button" className="close" data-dismiss="modal" aria-label="Close"><span
                                 aria-hidden="true">&times;</span></button>
-                            <h4 className="modal-title">登录</h4>
+                            <h4 className="modal-title">修改密码</h4>
                         </div>
                         <div className="modal-body">
                             <form className="form-horizontal">
-
                                 <div className="form-group">
                                     <div className="col-sm-12">
                                         <input type="tel"
                                                name="phone"
                                                className="form-control"
-                                               id="login-tel"
-                                               onChange={this.handleInputChange}
-                                               value={this.state.phone}
-                                               onBlur={(e) => this.handlePhoneBlur(e)}
-                                               placeholder="请输入您的电话号码"/>
-                                        { this.state.validator.invalidPhone ?
-                                            <div className="alert alert-danger" role="alert">手机号码格式不正确</div>
-                                            : ""
-                                        }
+                                               value={this.state.username}
+                                               placeholder="请输入您的电话号码"
+                                                readOnly/>
                                     </div>
                                 </div>
                                 <div className="form-group">
@@ -127,13 +122,25 @@ class SignIn extends Component {
                                         <input type="password"
                                                name="pwd"
                                                className="form-control"
-                                               id="login-pwd"
                                                onChange={this.handleInputChange}
                                                onBlur={this.handlePwdBlur}
-                                               placeholder="请输入密码"
-                                        />
+                                               placeholder="请输入密码"/>
                                         {this.state.validator.invalidPwd ?
                                             <div className="alert alert-danger" role="alert">请输入6-20位密码</div>
+                                            : ""
+                                        }
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <div className="col-sm-12">
+                                        <input type="password"
+                                               name="repwd"
+                                               className="form-control"
+                                               onChange={this.handleInputChange}
+                                               onBlur={this.handleRepwdBlur}
+                                               placeholder="请再次输入密码"/>
+                                        {this.state.validator.invalidRepwd ?
+                                            <div className="alert alert-danger" role="alert">两次密码输入不正确</div>
                                             : ""
                                         }
                                     </div>
@@ -142,21 +149,19 @@ class SignIn extends Component {
                                     <div className="col-sm-3">
                                         <input type="text"
                                                name="vcode"
+                                               className="form-control"
                                                onChange={this.handleInputChange}
                                                onBlur={this.handleVcodeBlur}
-                                               className="form-control"
-                                               id="register_vcode"
                                                placeholder="验证码"/>
                                     </div>
                                     <div className="col-sm-3 vcode">
                                         <img src={this.state.captchaUrl}
-                                             onClick={this.getCaptcha.bind(this)}
-                                             alt="error"
-                                        />
+                                             onClick={this.getCaptcha}
+                                             alt="error"/>
                                     </div>
                                     <div className="col-sm-6">
                                         <p>请填写图片中的字符，不区分大小写</p>
-                                        <p><a onClick={this.getCaptcha.bind(this)}>看不清楚，重新换一张</a></p>
+                                        <p><a  onClick={this.getCaptcha}>看不清楚，重新换一张</a></p>
                                     </div>
                                 </div>
                                 {this.state.validator.invalidVcode ?
@@ -167,30 +172,18 @@ class SignIn extends Component {
                                     </div>
                                     : ""
                                 }
-                                <div className="form-group">
-                                    <div className="col-sm-10">
-                                        <div className="checkbox">
-                                            <label>
-                                                <input name="remember"
-                                                       type="checkbox"
-                                                       onChange={this.handleInputChange}/> Remember me
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="form-group">
-                                    <div className="col-sm-4 col-sm-offset-8">
-                                        <button type="button" className="btn btn-default" data-dismiss="modal">取消</button>
-                                        <button type="button" onClick={this.Signin} className="btn btn-primary">登录</button>
-                                    </div>
-                                </div>
                             </form>
+                        </div>
+                        <div className="modal-footer">
+                            <button type="button" className="btn btn-default" data-dismiss="modal">取消</button>
+                            <button type="button" onClick={this.alterPwd} className="btn btn-primary" data-dismiss="modal">修改</button>
                         </div>
                     </div>
                 </div>
             </div>
+
         )
     }
 }
 
-export default SignIn
+export default AlterPwd;
