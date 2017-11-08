@@ -7,7 +7,7 @@ class AlterPwd extends Component {
         this.state = {
             captchaUrl: this.props.auth.captchaUrl,
             validator: {},
-            username: this.props.auth.getUser()
+            username: this.props.auth.getUser() || ""
         }
         this.getCaptcha = this.getCaptcha.bind(this);
         this.handleInputChange = this.handleInputChange.bind(this);

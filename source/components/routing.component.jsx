@@ -6,7 +6,6 @@ import {
     Link
 } from 'react-router-dom';
 
-import {config} from "../config/app.config.jsx";
 import Auth from "../service/auth.service.jsx";
 
 import Home from './home/home.component.jsx';
@@ -35,7 +34,7 @@ class Routing extends Component {
                     <Route path="/contact" component={Contact} />
                     <Route path="/blog" component={Blog} />
                     <Route path="/users" component={Users} />
-                    <Route path="/profile" auth={auth} component={Profile} />
+                    <Route path="/profile" render={(props) => <Profile auth={auth} {...props} />} />
                  </main>
                 <Footer />
                 <SignUp auth={auth}/>

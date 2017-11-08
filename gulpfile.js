@@ -1,10 +1,10 @@
 var gulp = require('gulp');
 
-var watch = require('gulp-watch');
 var browserify = require('browserify');
 var babelify = require('babelify');
 var source = require('vinyl-source-stream');
 
+var watch = require('gulp-watch');
 var eslint = require('gulp-eslint');
 //清除不用的目录及文件
 var clean = require('gulp-clean');

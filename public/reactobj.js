@@ -24913,7 +24913,7 @@ var AlterPwd = function (_Component) {
         _this.state = {
             captchaUrl: _this.props.auth.captchaUrl,
             validator: {},
-            username: _this.props.auth.getUser()
+            username: _this.props.auth.getUser() || ""
         };
         _this.getCaptcha = _this.getCaptcha.bind(_this);
         _this.handleInputChange = _this.handleInputChange.bind(_this);
@@ -25648,6 +25648,12 @@ var _react = require('react');
 
 var _react2 = _interopRequireDefault(_react);
 
+require('whatwg-fetch');
+
+var _uploadfileComponent = require('../uploadfile/uploadfile.component.jsx');
+
+var _uploadfileComponent2 = _interopRequireDefault(_uploadfileComponent);
+
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
@@ -25667,6 +25673,9 @@ var Profile = function (_Component) {
         var _this = _possibleConstructorReturn(this, (Profile.__proto__ || Object.getPrototypeOf(Profile)).call(this, props));
 
         _this.state = {
+            phone: localStorage.getItem('username'),
+            profilePictureUrl: '',
+            remotUrl: _this.props.auth.remoteHost,
             validator: {}
         };
         _this.handleInputChange = _this.handleInputChange.bind(_this);
@@ -25676,16 +25685,57 @@ var Profile = function (_Component) {
         _this.handleAgeBlur = _this.handleAgeBlur.bind(_this);
         _this.handleLoginNameBlur = _this.handleLoginNameBlur.bind(_this);
         _this.handleAddressBlur = _this.handleAddressBlur.bind(_this);
+        _this.saveProfile = _this.saveProfile.bind(_this);
+        _this.setGender = _this.setGender.bind(_this);
+        _this.refreshHeadimg = _this.refreshHeadimg.bind(_this);
         return _this;
     }
+    //组件挂载完成
+
 
     _createClass(Profile, [{
+        key: 'componentDidMount',
+        value: function componentDidMount() {
+            var self = this;
+            var url = this.props.auth.apiUrl + '/profile/' + this.state.phone;
+            fetch(url).then(function (response) {
+                return response.json();
+            }).then(function (json) {
+                if (parseInt(json.code) == 1) {
+                    self.setState({
+                        userid: localStorage.getItem('userid'),
+                        phone: json.users[0].phone,
+                        profilePictureUrl: json.users[0].picture,
+                        email: json.users[0].email,
+                        nickName: json.users[0].nickName,
+                        realName: json.users[0].realName,
+                        loginName: json.users[0].loginName,
+                        age: json.users[0].age,
+                        address: json.users[0].address,
+                        gender: json.users[0].gender
+                    });
+                    self.setGender();
+                }
+            }), function (error) {
+                console.log(error);
+            };
+        }
+    }, {
+        key: 'setGender',
+        value: function setGender() {
+            if (this.state.gender === 1) {
+                $("#male").prop('checked', 'checked');
+            }
+            if (this.state.gender === 0) {
+                $("#female").prop('checked', 'checked');
+            }
+        }
+    }, {
         key: 'handleInputChange',
         value: function handleInputChange(event) {
             var target = event.target;
             var value = target.type === 'checkbox' ? target.checked : target.value;
             var name = target.name;
-
             this.setState(_defineProperty({}, name, value));
         }
     }, {
@@ -25770,6 +25820,41 @@ var Profile = function (_Component) {
                     } });
             }
         }
+        // 更新数据
+
+    }, {
+        key: 'saveProfile',
+        value: function saveProfile() {
+            var _state = this.state,
+                phone = _state.phone,
+                email = _state.email,
+                nickName = _state.nickName,
+                realName = _state.realName,
+                loginName = _state.loginName,
+                age = _state.age,
+                address = _state.address,
+                gender = _state.gender;
+
+            var data = 'phone=' + phone + '&email=' + email + '&nicname=' + nickName + '&realname=' + realName + '&loginname=' + loginName + '&age=' + age + '&address=' + address + '&gender=' + gender;
+            alert(data);
+            var url = this.props.auth.apiUrl + "/save-profile";
+            console.log('url', url);
+            fetch(url, { method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: data }).then(function (response) {
+                return response.json();
+            }).then(function (json) {
+                console.log("json====", json);
+            });
+        }
+    }, {
+        key: 'refreshHeadimg',
+        value: function refreshHeadimg(imgurl) {
+            console.log("imgurl", imgurl);
+            console.log("remotUrl", this.state.remotUrl);
+            this.setState({
+                profilePictureUrl: imgurl
+            });
+        }
     }, {
         key: 'render',
         value: function render() {
@@ -25790,53 +25875,15 @@ var Profile = function (_Component) {
                         _react2.default.createElement(
                             'div',
                             { className: 'col-sm-10' },
-                            _react2.default.createElement('img', null),
-                            _react2.default.createElement(
+                            this.state.profilePictureUrl ? _react2.default.createElement('img', { src: this.state.remotUrl + this.state.profilePictureUrl }) : _react2.default.createElement(
                                 'div',
                                 null,
                                 '\u4F60\u8FD8\u6CA1\u6709\u5934\u50CF\uFF0C\u8BF7\u4E0A\u4F20\u4E00\u5F20\u5934\u50CF'
                             )
                         )
-                    ),
-                    _react2.default.createElement(
-                        'form',
-                        { className: 'form-horizontal', role: 'form' },
-                        _react2.default.createElement(
-                            'div',
-                            { className: 'form-group' },
-                            _react2.default.createElement(
-                                'label',
-                                { className: 'col-sm-2 control-label' },
-                                'Profile photo'
-                            ),
-                            _react2.default.createElement(
-                                'div',
-                                { className: 'col-sm-4' },
-                                _react2.default.createElement('input', {
-                                    type: 'file',
-                                    className: 'form-control',
-                                    required: true,
-                                    accept: 'image/*',
-                                    id: 'fieldPhoto',
-                                    name: 'photo' }),
-                                _react2.default.createElement('input', { type: 'hidden', name: 'uid', value: '{{UID}}' })
-                            )
-                        ),
-                        _react2.default.createElement(
-                            'div',
-                            { className: 'form-group' },
-                            _react2.default.createElement(
-                                'div',
-                                { className: 'col-sm-offset-2 col-sm-4' },
-                                _react2.default.createElement(
-                                    'button',
-                                    { type: 'submit', className: 'btn btn-primary' },
-                                    'Submit'
-                                )
-                            )
-                        )
                     )
                 ),
+                _react2.default.createElement(_uploadfileComponent2.default, { auth: this.props.auth, refreshHeadimg: this.refreshHeadimg }),
                 _react2.default.createElement(
                     'section',
                     { className: 'container', style: { overflowX: "hidden" } },
@@ -25866,6 +25913,7 @@ var Profile = function (_Component) {
                                     name: 'email',
                                     className: 'form-control',
                                     id: 'email',
+                                    value: this.state.email,
                                     onChange: this.handleInputChange,
                                     onBlur: this.handleEmailBlur,
                                     placeholder: '\u8BF7\u8F93\u5165\u6B63\u786E\u7684\u90AE\u7BB1' }),
@@ -25876,10 +25924,26 @@ var Profile = function (_Component) {
                                 ) : ""
                             )
                         ),
-                        _react2.default.createElement('input', { type: 'tel',
-                            name: 'phone',
-                            id: 'phone',
-                            hidden: 'hidden' }),
+                        _react2.default.createElement(
+                            'div',
+                            { className: 'form-group' },
+                            _react2.default.createElement(
+                                'label',
+                                { className: 'col-sm-2 control-label' },
+                                '\u624B\u673A\u53F7:'
+                            ),
+                            _react2.default.createElement(
+                                'div',
+                                { className: 'col-sm-10' },
+                                _react2.default.createElement('input', { type: 'text',
+                                    name: 'phone',
+                                    className: 'form-control',
+                                    id: 'phone',
+                                    value: this.state.phone,
+                                    onChange: this.handleInputChange,
+                                    readOnly: true })
+                            )
+                        ),
                         _react2.default.createElement(
                             'div',
                             { className: 'form-group' },
@@ -25895,6 +25959,7 @@ var Profile = function (_Component) {
                                     name: 'nickName',
                                     className: 'form-control',
                                     id: 'nickname',
+                                    value: this.state.nickName,
                                     onChange: this.handleInputChange,
                                     onBlur: this.handleNickNameBlur,
                                     placeholder: '\u8BF7\u8F93\u5165\u6635\u79F0' }),
@@ -25920,6 +25985,7 @@ var Profile = function (_Component) {
                                     name: 'realName',
                                     className: 'form-control',
                                     id: 'realname',
+                                    value: this.state.realName,
                                     onChange: this.handleInputChange,
                                     onBlur: this.handleRealNameBlur,
                                     placeholder: '\u8BF7\u8F93\u5165\u771F\u5B9E\u59D3\u540D' }),
@@ -25945,6 +26011,7 @@ var Profile = function (_Component) {
                                     name: 'loginName',
                                     className: 'form-control',
                                     id: 'loginname',
+                                    value: this.state.loginName,
                                     onChange: this.handleInputChange,
                                     onBlur: this.handleLoginNameBlur,
                                     placeholder: '\u8BF7\u8BBE\u7F6E\u767B\u5F55\u540D' }),
@@ -25970,6 +26037,7 @@ var Profile = function (_Component) {
                                     name: 'age',
                                     className: 'form-control',
                                     id: 'age',
+                                    value: this.state.age,
                                     onChange: this.handleInputChange,
                                     onBlur: this.handleAgeBlur,
                                     placeholder: '\u8BF7\u8F93\u5165\u5E74\u9F84' }),
@@ -25996,11 +26064,13 @@ var Profile = function (_Component) {
                                     { className: 'checkbox' },
                                     _react2.default.createElement('input', { type: 'radio',
                                         value: '1',
+                                        id: 'male',
                                         onChange: this.handleInputChange,
                                         name: 'gender' }),
                                     '\u7537',
                                     _react2.default.createElement('input', { type: 'radio',
                                         value: '0',
+                                        id: 'female',
                                         onChange: this.handleInputChange,
                                         name: 'gender' }),
                                     '\u5973'
@@ -26022,6 +26092,7 @@ var Profile = function (_Component) {
                                     name: 'address',
                                     className: 'form-control',
                                     id: 'address',
+                                    value: this.state.address,
                                     onChange: this.handleInputChange,
                                     onBlur: this.handleAddressBlur,
                                     placeholder: '\u8BF7\u8F93\u5165\u60A8\u7684\u5730\u5740' }),
@@ -26041,6 +26112,7 @@ var Profile = function (_Component) {
                                 _react2.default.createElement('input', { type: 'button',
                                     name: 'update',
                                     className: 'btn btn-default',
+                                    onClick: this.saveProfile,
                                     id: 'update',
                                     value: '\u786E\u5B9A' })
                             )
@@ -26056,12 +26128,14 @@ var Profile = function (_Component) {
 
 exports.default = Profile;
 
-},{"react":220}],234:[function(require,module,exports){
+},{"../uploadfile/uploadfile.component.jsx":237,"react":220,"whatwg-fetch":224}],234:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
     value: true
 });
+
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
@@ -26070,8 +26144,6 @@ var _react = require('react');
 var _react2 = _interopRequireDefault(_react);
 
 var _reactRouterDom = require('react-router-dom');
-
-var _appConfig = require('../config/app.config.jsx');
 
 var _authService = require('../service/auth.service.jsx');
 
@@ -26158,7 +26230,9 @@ var Routing = function (_Component) {
                         _react2.default.createElement(_reactRouterDom.Route, { path: '/contact', component: _contactComponent2.default }),
                         _react2.default.createElement(_reactRouterDom.Route, { path: '/blog', component: _blogComponent2.default }),
                         _react2.default.createElement(_reactRouterDom.Route, { path: '/users', component: _usersComponent2.default }),
-                        _react2.default.createElement(_reactRouterDom.Route, { path: '/profile', auth: auth, component: _profileComponent2.default })
+                        _react2.default.createElement(_reactRouterDom.Route, { path: '/profile', render: function render(props) {
+                                return _react2.default.createElement(_profileComponent2.default, _extends({ auth: auth }, props));
+                            } })
                     ),
                     _react2.default.createElement(_footerComponent2.default, null),
                     _react2.default.createElement(_signupComponent2.default, { auth: auth }),
@@ -26174,7 +26248,7 @@ var Routing = function (_Component) {
 
 exports.default = Routing;
 
-},{"../config/app.config.jsx":238,"../service/auth.service.jsx":239,"./about/about.component.jsx":226,"./alter-pwd/alterpwd.component.jsx":227,"./blog/blog.component.jsx":228,"./contact/contact.component.jsx":229,"./footer/footer.component.jsx":230,"./home/home.component.jsx":231,"./navigation/navigation.component.jsx":232,"./profile/profile.component.jsx":233,"./sign-in/signin.component.jsx":235,"./sign-up/signup.component.jsx":236,"./users/users.component.jsx":237,"react":220,"react-router-dom":183}],235:[function(require,module,exports){
+},{"../service/auth.service.jsx":240,"./about/about.component.jsx":226,"./alter-pwd/alterpwd.component.jsx":227,"./blog/blog.component.jsx":228,"./contact/contact.component.jsx":229,"./footer/footer.component.jsx":230,"./home/home.component.jsx":231,"./navigation/navigation.component.jsx":232,"./profile/profile.component.jsx":233,"./sign-in/signin.component.jsx":235,"./sign-up/signup.component.jsx":236,"./users/users.component.jsx":238,"react":220,"react-router-dom":183}],235:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -26816,6 +26890,135 @@ var SignUp = function (_Component) {
 exports.default = SignUp;
 
 },{"react":220}],237:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+    value: true
+});
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _react = require('react');
+
+var _react2 = _interopRequireDefault(_react);
+
+require('whatwg-fetch');
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var UploadFile = function (_Component) {
+    _inherits(UploadFile, _Component);
+
+    function UploadFile(props) {
+        _classCallCheck(this, UploadFile);
+
+        var _this = _possibleConstructorReturn(this, (UploadFile.__proto__ || Object.getPrototypeOf(UploadFile)).call(this, props));
+
+        console.log("props", props);
+        _this.state = {
+            userid: localStorage.getItem('userid'),
+            UID: localStorage.getItem('username'),
+            remotUrl: _this.props.auth.remoteHost
+        };
+        _this.submitFile = _this.submitFile.bind(_this);
+        _this.handleGetFile = _this.handleGetFile.bind(_this);
+        var now = new Date();
+        _this.year = now.getFullYear();
+        _this.month = now.getMonth();
+        _this.timestr = Date.now();
+        return _this;
+    }
+
+    _createClass(UploadFile, [{
+        key: 'handleGetFile',
+        value: function handleGetFile(e) {
+            this.files = e.target.files;
+        }
+    }, {
+        key: 'submitFile',
+        value: function submitFile() {
+            var self = this;
+            var url = this.props.auth.apiUrl + '/upload-profile/' + this.state.UID + '/' + this.year + '/' + this.month + '/' + this.timestr;
+            console.log('url', url);
+            var file = this.files[0];
+            if (this.files.length > 0) {
+
+                var formData = new FormData();
+                formData.append('fileUpload', file, file.name);
+
+                fetch(url, { method: "POST",
+                    headers: { 'enctype': 'multipart/form-data' },
+                    body: formData
+                }).then(function (response) {
+                    return response.json();
+                }).then(function (json) {
+                    if (parseInt(json.code) == 1) {
+                        console.log("json====", json);
+                        self.props.refreshHeadimg(json.url);
+                    }
+                }), function (error) {};
+            }
+        }
+    }, {
+        key: 'render',
+        value: function render() {
+            return _react2.default.createElement(
+                'form',
+                { className: 'form-horizontal', role: 'form',
+                    encType: 'multipart/form-data' },
+                _react2.default.createElement(
+                    'div',
+                    { className: 'form-group' },
+                    _react2.default.createElement(
+                        'label',
+                        { className: 'col-sm-2 control-label' },
+                        'Profile photo'
+                    ),
+                    _react2.default.createElement(
+                        'div',
+                        { className: 'col-sm-4' },
+                        _react2.default.createElement('input', {
+                            type: 'file',
+                            className: 'form-control',
+                            required: true,
+                            accept: 'image/*',
+                            id: 'fieldPhoto',
+                            name: 'fileUpload',
+                            onChange: this.handleGetFile }),
+                        _react2.default.createElement('input', { type: 'hidden', name: 'uid', value: '{{UID}}' })
+                    )
+                ),
+                _react2.default.createElement(
+                    'div',
+                    { className: 'form-group' },
+                    _react2.default.createElement(
+                        'div',
+                        { className: 'col-sm-offset-2 col-sm-4' },
+                        _react2.default.createElement(
+                            'button',
+                            { type: 'button',
+                                className: 'btn btn-primary',
+                                onClick: this.submitFile },
+                            'Submit'
+                        )
+                    )
+                )
+            );
+        }
+    }]);
+
+    return UploadFile;
+}(_react.Component);
+
+exports.default = UploadFile;
+
+},{"react":220,"whatwg-fetch":224}],238:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -26869,7 +27072,7 @@ var Users = function (_Component) {
 
 exports.default = Users;
 
-},{"react":220}],238:[function(require,module,exports){
+},{"react":220}],239:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -26883,7 +27086,7 @@ var config = exports.config = {
     'APP_COPY_RIGHT': 2018
 };
 
-},{}],239:[function(require,module,exports){
+},{}],240:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -26949,4 +27152,4 @@ var Auth = function () {
 
 exports.default = Auth;
 
-},{"../config/app.config.jsx":238}]},{},[225]);
+},{"../config/app.config.jsx":239}]},{},[225]);
